@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "6aa0effe-f8df-4fb6-b64a-04f75e32382c"
+      }
+    },
+    "android": {
+      "package": "com.marktwain.currencyappfrontend"
+    },
+    "ios": {
+      "bundleIdentifier": "com.marktwain.currencyappfrontend"
+    },
+    "splash": {
+      "backgroundColor": "#111C2B"
+    }
+  }
+}

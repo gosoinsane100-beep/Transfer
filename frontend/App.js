@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, ScrollView, ActivityIndicator, Linking } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, ScrollView, ActivityIndicator, Linking, Platform } from 'react-native';
 
 const BACKEND_URL = 'https://transfer-app-df1j.onrender.com';
 
@@ -12,12 +12,13 @@ const PAYMENT_HANDLES = {
 
 const translations = {
   en: {
+    brandTitle: 'Sudan Remit',
     langToggle: 'العربية',
     navHome: 'Home',
     navSend: 'Send',
     navHistory: 'History',
     welcome: 'Welcome',
-    rateTitle: 'Live Exchange Rate (البديل)',
+    rateTitle: 'Live Exchange Rate',
     rateSub: '1 USD =',
     quickSend: 'Send Money to Bankak',
     quickSendDesc: 'Transfer USD instantly at market rates with $0 hidden fees.',
@@ -55,15 +56,23 @@ const translations = {
     signupBtn: 'Create Account',
     switchSignup: "Don't have an account? Sign Up",
     switchLogin: 'Already have an account? Sign In',
-    logoutBtn: 'Logout'
+    logoutBtn: 'Logout',
+    statusLabels: {
+      pending: 'Pending',
+      payment_received: 'Payment received',
+      sent: 'Sent to Bankak',
+      completed: 'Completed',
+      rejected: 'Rejected'
+    }
   },
   ar: {
+    brandTitle: 'تحويل السودان',
     langToggle: 'English',
     navHome: 'الرئيسية',
     navSend: 'تحويل',
     navHistory: 'السجل',
     welcome: 'مرحباً بك',
-    rateTitle: 'سعر الصرف المباشر (البديل)',
+    rateTitle: 'سعر الصرف المباشر',
     rateSub: '1 دولار =',
     quickSend: 'إرسال أموال إلى بنكك',
     quickSendDesc: 'حوّل الدولار فوراً بأسعار السوق وبدون رسوم خفية.',
@@ -101,7 +110,14 @@ const translations = {
     signupBtn: 'إنشاء حساب',
     switchSignup: 'ليس لديك حساب؟ سجل الآن',
     switchLogin: 'لديك حساب بالفعل؟ سجل الدخول',
-    logoutBtn: 'خروج'
+    logoutBtn: 'خروج',
+    statusLabels: {
+      pending: 'قيد الانتظار',
+      payment_received: 'تم استلام الدفعة',
+      sent: 'تم الإرسال إلى بنكك',
+      completed: 'مكتمل',
+      rejected: 'مرفوض'
+    }
   }
 };
 
@@ -194,11 +210,10 @@ export default function App() {
   const fetchUserHistory = async (userEmail) => {
     try {
       setFetchingHistory(true);
-      const response = await fetch(`${BACKEND_URL}/api/admin/transactions`);
+      const response = await fetch(`${BACKEND_URL}/api/transactions/mine?email=${encodeURIComponent(userEmail)}`);
       const data = await response.json();
       if (data.success) {
-        const userOrders = data.transactions.filter(t => t.sender_email === userEmail);
-        setTransactions(userOrders);
+        setTransactions(data.transactions);
       }
     } catch (error) {
       console.log('Error fetching user history:', error);
@@ -231,6 +246,17 @@ export default function App() {
     } finally {
       setUploadingReceipt(false);
     }
+  };
+
+  const statusStyle = (status) => {
+    if (status === 'completed') return styles.badgeSuccess;
+    if (status === 'rejected') return styles.badgeDanger;
+    if (status === 'payment_received' || status === 'sent') return styles.badgeProgress;
+    return styles.badgePending;
+  };
+
+  const statusLabel = (status) => {
+    return t.statusLabels[status] ? t.statusLabels[status] : t.statusLabels.pending;
   };
 
   const platformFeePercent = 0.05;
@@ -282,7 +308,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.topBar}>
-          <Text style={styles.brandTitle}>CashExpress SDG</Text>
+          <Text style={styles.brandTitle}>{t.brandTitle}</Text>
           <TouchableOpacity style={styles.langBtn} onPress={() => setLang(lang === 'en' ? 'ar' : 'en')}>
             <Text style={styles.langBtnText}>{t.langToggle}</Text>
           </TouchableOpacity>
@@ -291,7 +317,7 @@ export default function App() {
         <ScrollView contentContainerStyle={styles.scrollCenter}>
           <View style={styles.authCard}>
             <Text style={styles.title}>{isSignUp ? t.signupTitle : t.loginTitle}</Text>
-            
+
             <Text style={styles.label}>{t.authUsername}</Text>
             <TextInput style={styles.inputMargin} autoCapitalize="none" value={username} onChangeText={setUsername} placeholder="e.g. ahmed123" />
 
@@ -299,7 +325,7 @@ export default function App() {
             <TextInput style={styles.inputMargin} secureTextEntry value={authPassword} onChangeText={setAuthPassword} placeholder="••••••••" />
 
             <TouchableOpacity style={styles.button} onPress={handleAuth} disabled={authLoading}>
-              {authLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{isSignUp ? t.signupBtn : t.loginBtn}</Text>}
+              {authLoading ? <ActivityIndicator color="#F4F6FA" /> : <Text style={styles.buttonText}>{isSignUp ? t.signupBtn : t.loginBtn}</Text>}
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setIsSignUp(!isSignUp)}>
@@ -317,7 +343,7 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
         <View>
-          <Text style={styles.brandTitle}>CashExpress SDG</Text>
+          <Text style={styles.brandTitle}>{t.brandTitle}</Text>
           <Text style={styles.userSubText}>@{userDisplayName}</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -333,12 +359,14 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.scroll}>
         {activeTab === 'home' && (
           <View style={styles.screenContainer}>
-            <Text style={styles.greetingText}>{t.welcome}, @{userDisplayName}!</Text>
+            <Text style={styles.greetingText}>{t.welcome}, @{userDisplayName}</Text>
 
             <View style={styles.rateCard}>
               <Text style={styles.rateCardTitle}>{t.rateTitle}</Text>
+              <View style={styles.rateRule} />
               <Text style={styles.rateCardValue}>
-                {t.rateSub} <Text style={styles.rateHighlight}>{loading ? t.loading : `${rate} SDG`}</Text>
+                {t.rateSub}{' '}
+                <Text style={styles.rateHighlight}>{loading ? t.loading : `${rate.toLocaleString()} SDG`}</Text>
               </Text>
             </View>
 
@@ -346,7 +374,7 @@ export default function App() {
               <Text style={styles.bannerTitle}>{t.quickSend}</Text>
               <Text style={styles.bannerDesc}>{t.quickSendDesc}</Text>
               <TouchableOpacity style={styles.bannerBtn} onPress={() => setActiveTab('send')}>
-                <Text style={styles.bannerBtnText}>{t.sendNowBtn} →</Text>
+                <Text style={styles.bannerBtnText}>{t.sendNowBtn}</Text>
               </TouchableOpacity>
             </View>
 
@@ -360,8 +388,8 @@ export default function App() {
                     <Text style={styles.miniCardTitle}>Transfer to {item.bankak_account_name}</Text>
                     <Text style={styles.miniCardSub}>${item.amount_usd} USD ({item.payment_method})</Text>
                   </View>
-                  <Text style={[styles.miniStatus, item.status === 'completed' ? styles.statusSuccess : styles.statusPending]}>
-                    {item.status ? item.status.toUpperCase() : 'PENDING'}
+                  <Text style={[styles.miniStatus, statusStyle(item.status)]}>
+                    {statusLabel(item.status)}
                   </Text>
                 </View>
               ))
@@ -426,7 +454,7 @@ export default function App() {
                 <View style={styles.uploadContainer}>
                   <input type="file" accept="image/*" onChange={handleFileChange} style={{ marginBottom: 8 }} />
                   {uploadingReceipt && <Text style={styles.uploadingText}>Uploading receipt...</Text>}
-                  {receiptUrl ? <Text style={styles.uploadedText}>✓ Receipt Attached</Text> : null}
+                  {receiptUrl ? <Text style={styles.uploadedText}>✓ Receipt attached</Text> : null}
                 </View>
 
                 <Text style={styles.sectionHeader}>{t.bankakHeader}</Text>
@@ -434,7 +462,7 @@ export default function App() {
                 <TextInput style={styles.inputMargin} placeholder={t.bankakNamePlaceholder} value={bankakName} onChangeText={setBankakName} />
 
                 <TouchableOpacity style={styles.button} onPress={handleSubmitOrder} disabled={submitting}>
-                  {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{t.submitBtn}</Text>}
+                  {submitting ? <ActivityIndicator color="#F4F6FA" /> : <Text style={styles.buttonText}>{t.submitBtn}</Text>}
                 </TouchableOpacity>
               </>
             )}
@@ -447,7 +475,7 @@ export default function App() {
             <Text style={styles.subtitle}>{t.historySub}</Text>
 
             {fetchingHistory ? (
-              <ActivityIndicator size="large" color="#2563eb" style={{ marginVertical: 20 }} />
+              <ActivityIndicator size="large" color="#0B3B63" style={{ marginVertical: 20 }} />
             ) : transactions.length === 0 ? (
               <Text style={styles.emptyText}>{t.noActivity}</Text>
             ) : (
@@ -455,8 +483,8 @@ export default function App() {
                 <View key={item.id} style={styles.historyCard}>
                   <View style={styles.historyHeader}>
                     <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
-                    <Text style={[styles.badge, item.status === 'completed' ? styles.badgeSuccess : item.status === 'rejected' ? styles.badgeDanger : styles.badgePending]}>
-                      {item.status ? item.status.toUpperCase() : 'PENDING'}
+                    <Text style={[styles.badge, statusStyle(item.status)]}>
+                      {statusLabel(item.status)}
                     </Text>
                   </View>
                   <Text style={styles.historyDetail}>Paid: ${item.amount_usd} USD via {item.payment_method}</Text>
@@ -465,7 +493,7 @@ export default function App() {
 
                   {item.receipt_url ? (
                     <TouchableOpacity onPress={() => Linking.openURL(item.receipt_url)} style={styles.receiptLink}>
-                      <Text style={styles.receiptLinkText}>📎 View Attached Receipt</Text>
+                      <Text style={styles.receiptLinkText}>📎 View attached receipt</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -477,95 +505,132 @@ export default function App() {
 
       <View style={styles.bottomNav}>
         <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('home')}>
-          <Text style={[styles.navIcon, activeTab === 'home' && styles.navTextActive]}>🏠</Text>
+          <Text style={styles.navIcon}>🏠</Text>
           <Text style={[styles.navText, activeTab === 'home' && styles.navTextActive]}>{t.navHome}</Text>
+          {activeTab === 'home' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('send')}>
-          <Text style={[styles.navIcon, activeTab === 'send' && styles.navTextActive]}>💸</Text>
+          <Text style={styles.navIcon}>💸</Text>
           <Text style={[styles.navText, activeTab === 'send' && styles.navTextActive]}>{t.navSend}</Text>
+          {activeTab === 'send' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('history')}>
-          <Text style={[styles.navIcon, activeTab === 'history' && styles.navTextActive]}>📜</Text>
+          <Text style={styles.navIcon}>📜</Text>
           <Text style={[styles.navText, activeTab === 'history' && styles.navTextActive]}>{t.navHistory}</Text>
+          {activeTab === 'history' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
+// ---- Visual tokens -------------------------------------------------
+// A deep banking navy + warm brass palette, deliberately echoing the
+// Bankak app this audience already uses and trusts daily — the goal is
+// for this to read as "another screen from my bank," not a new,
+// unfamiliar startup. Flat surfaces and hairline rules instead of
+// shadow-heavy cards, a serif reserved for headings and the rate/payout
+// numbers (the two things a sender actually came to look at), and a
+// single warm accent spent only on the primary action and the amounts.
+const colors = {
+  ink: '#111C2B',
+  paper: '#F4F6FA',
+  card: '#FFFFFF',
+  border: '#D9E1EC',
+  muted: '#5B6B80',
+  primary: '#0B3B63',
+  primaryPressed: '#082C4A',
+  gold: '#B8841F',
+  pendingBg: '#F6EAD2',
+  pendingText: '#8A6111',
+  progressBg: '#E1EAF5',
+  progressText: '#0B3B63',
+  successBg: '#DCEEE1',
+  successText: '#09573F',
+  dangerBg: '#F3DEDE',
+  dangerText: '#8C1D1D'
+};
+
+const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#0f172a' },
-  brandTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
-  userSubText: { fontSize: 11, color: '#38bdf8', marginTop: 2, fontWeight: 'bold' },
-  langBtn: { paddingVertical: 4, paddingHorizontal: 10, backgroundColor: '#334155', borderRadius: 16 },
-  langBtnText: { fontSize: 12, fontWeight: 'bold', color: '#fff' },
-  logoutBtn: { paddingVertical: 4, paddingHorizontal: 10, backgroundColor: '#dc2626', borderRadius: 16 },
-  logoutBtnText: { fontSize: 12, fontWeight: 'bold', color: '#fff' },
-  scroll: { padding: 16, paddingBottom: 80 },
+  container: { flex: 1, backgroundColor: colors.paper },
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: colors.ink },
+  brandTitle: { fontSize: 18, fontFamily: serif, fontWeight: 'bold', color: colors.paper },
+  userSubText: { fontSize: 11, color: colors.gold, marginTop: 2 },
+  langBtn: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 4, borderWidth: 1, borderColor: colors.gold },
+  langBtnText: { fontSize: 12, fontWeight: '600', color: colors.gold },
+  logoutBtn: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 4, borderWidth: 1, borderColor: '#3A4D63' },
+  logoutBtnText: { fontSize: 12, fontWeight: '600', color: colors.paper },
+  scroll: { padding: 16, paddingBottom: 90 },
   scrollCenter: { flexGrow: 1, justifyContent: 'center', padding: 20 },
-  authCard: { backgroundColor: '#fff', borderRadius: 16, padding: 20, elevation: 4 },
+  authCard: { backgroundColor: colors.card, borderRadius: 6, padding: 20, borderWidth: 1, borderColor: colors.border },
   switchAuthBtn: { marginTop: 14, alignItems: 'center' },
-  switchAuthText: { fontSize: 13, color: '#2563eb', fontWeight: 'bold' },
+  switchAuthText: { fontSize: 13, color: colors.primary, fontWeight: '600' },
   screenContainer: { flex: 1 },
-  greetingText: { fontSize: 20, fontWeight: 'bold', color: '#0f172a', marginBottom: 12 },
-  rateCard: { backgroundColor: '#1e293b', borderRadius: 14, padding: 16, marginBottom: 16 },
-  rateCardTitle: { fontSize: 13, color: '#94a3b8' },
-  rateCardValue: { fontSize: 16, color: '#fff', marginTop: 4 },
-  rateHighlight: { fontSize: 22, fontWeight: 'bold', color: '#38bdf8' },
-  bannerCard: { backgroundColor: '#2563eb', borderRadius: 14, padding: 18, marginBottom: 20 },
-  bannerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
-  bannerDesc: { fontSize: 13, color: '#e0e7ff', marginTop: 4, marginBottom: 12 },
-  bannerBtn: { backgroundColor: '#fff', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, alignSelf: 'flex-start' },
-  bannerBtnText: { fontSize: 13, fontWeight: 'bold', color: '#2563eb' },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#0f172a', marginBottom: 10 },
-  emptyText: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginVertical: 10 },
-  miniCard: { backgroundColor: '#fff', padding: 12, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  miniCardTitle: { fontSize: 14, fontWeight: 'bold', color: '#1e293b' },
-  miniCardSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  miniStatus: { fontSize: 10, fontWeight: 'bold', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
-  statusPending: { backgroundColor: '#fef3c7', color: '#d97706' },
-  statusSuccess: { backgroundColor: '#dcfce7', color: '#15803d' },
-  title: { fontSize: 20, fontWeight: 'bold', color: '#0f172a', textAlign: 'center', marginBottom: 6 },
-  subtitle: { fontSize: 13, color: '#64748b', textAlign: 'center', marginBottom: 16 },
+  greetingText: { fontSize: 19, fontFamily: serif, color: colors.ink, marginBottom: 14 },
+  rateCard: { backgroundColor: colors.ink, borderRadius: 6, padding: 18, marginBottom: 16 },
+  rateCardTitle: { fontSize: 12, color: '#AFC2D6', letterSpacing: 0.3 },
+  rateRule: { height: 1, backgroundColor: colors.gold, opacity: 0.5, marginVertical: 10, width: 48 },
+  rateCardValue: { fontSize: 15, color: '#E4EAF2' },
+  rateHighlight: { fontSize: 26, fontFamily: serif, fontWeight: 'bold', color: colors.gold },
+  bannerCard: { backgroundColor: colors.card, borderRadius: 6, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: colors.border, borderLeftWidth: 3, borderLeftColor: colors.primary },
+  bannerTitle: { fontSize: 17, fontFamily: serif, fontWeight: 'bold', color: colors.ink },
+  bannerDesc: { fontSize: 13, color: colors.muted, marginTop: 4, marginBottom: 14, lineHeight: 18 },
+  bannerBtn: { backgroundColor: colors.primary, paddingVertical: 9, paddingHorizontal: 18, borderRadius: 4, alignSelf: 'flex-start' },
+  bannerBtnText: { fontSize: 13, fontWeight: '600', color: colors.paper },
+  sectionTitle: { fontSize: 15, fontWeight: '600', color: colors.ink, marginBottom: 10 },
+  emptyText: { fontSize: 13, color: colors.muted, fontStyle: 'italic', marginVertical: 10 },
+  miniCard: { backgroundColor: colors.card, padding: 12, borderRadius: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: colors.border },
+  miniCardTitle: { fontSize: 14, fontWeight: '600', color: colors.ink },
+  miniCardSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
+  miniStatus: { fontSize: 11, fontWeight: '600', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 4, overflow: 'hidden' },
+  title: { fontSize: 20, fontFamily: serif, fontWeight: 'bold', color: colors.ink, textAlign: 'center', marginBottom: 6 },
+  subtitle: { fontSize: 13, color: colors.muted, textAlign: 'center', marginBottom: 18 },
   inputContainer: { marginBottom: 12 },
-  label: { fontSize: 13, fontWeight: '600', color: '#334155', marginBottom: 4 },
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10, fontSize: 18, backgroundColor: '#fff' },
-  inputMargin: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10, fontSize: 14, marginBottom: 10, backgroundColor: '#fff' },
-  infoBox: { backgroundColor: '#eef2ff', padding: 10, borderRadius: 8, marginBottom: 12 },
-  infoText: { fontSize: 13, color: '#3730a3', marginVertical: 2 },
-  resultContainer: { alignItems: 'center', marginVertical: 12, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 8 },
-  resultLabel: { fontSize: 13, color: '#166534', fontWeight: '600' },
-  resultValue: { fontSize: 22, fontWeight: 'bold', color: '#15803d', marginTop: 2 },
-  sectionHeader: { fontSize: 14, fontWeight: 'bold', color: '#0f172a', marginTop: 10, marginBottom: 8 },
+  label: { fontSize: 13, fontWeight: '600', color: colors.ink, marginBottom: 4 },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 10, fontSize: 18, backgroundColor: colors.card, color: colors.ink },
+  inputMargin: { borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 10, fontSize: 14, marginBottom: 10, backgroundColor: colors.card, color: colors.ink },
+  infoBox: { backgroundColor: colors.card, padding: 10, borderRadius: 4, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
+  infoText: { fontSize: 13, color: colors.muted, marginVertical: 2 },
+  resultContainer: { alignItems: 'center', marginVertical: 12, padding: 16, backgroundColor: colors.ink, borderRadius: 6 },
+  resultLabel: { fontSize: 12, color: '#AFC2D6' },
+  resultValue: { fontSize: 24, fontFamily: serif, fontWeight: 'bold', color: colors.gold, marginTop: 4 },
+  sectionHeader: { fontSize: 14, fontWeight: '600', color: colors.ink, marginTop: 10, marginBottom: 8 },
   railRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  railButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff' },
-  railButtonActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
-  railText: { fontSize: 12, color: '#334155', fontWeight: '600' },
-  railTextActive: { color: '#fff' },
-  handleBox: { backgroundColor: '#f1f5f9', padding: 10, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#cbd5e1' },
-  handleLabel: { fontSize: 11, color: '#64748b' },
-  handleText: { fontSize: 14, color: '#0f172a', fontWeight: 'bold', marginTop: 2 },
-  uploadContainer: { marginBottom: 12, padding: 10, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1' },
-  uploadingText: { fontSize: 12, color: '#2563eb' },
-  uploadedText: { fontSize: 13, color: '#166534', fontWeight: 'bold' },
-  button: { backgroundColor: '#2563eb', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 10 },
-  buttonText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+  railButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 4, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  railButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  railText: { fontSize: 12, color: colors.ink, fontWeight: '600' },
+  railTextActive: { color: colors.paper },
+  handleBox: { backgroundColor: colors.card, padding: 10, borderRadius: 4, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
+  handleLabel: { fontSize: 11, color: colors.muted },
+  handleText: { fontSize: 14, color: colors.ink, fontWeight: '600', marginTop: 2 },
+  uploadContainer: { marginBottom: 12, padding: 10, backgroundColor: colors.card, borderRadius: 4, borderWidth: 1, borderColor: colors.border },
+  uploadingText: { fontSize: 12, color: colors.primary },
+  uploadedText: { fontSize: 13, color: colors.successText, fontWeight: '600' },
+  button: { backgroundColor: colors.primary, paddingVertical: 13, borderRadius: 4, alignItems: 'center', marginTop: 10 },
+  buttonText: { color: colors.paper, fontSize: 15, fontWeight: '600' },
   successContainer: { padding: 16, alignItems: 'center' },
-  successTitle: { fontSize: 18, fontWeight: 'bold', color: '#166534', marginBottom: 8 },
-  successText: { fontSize: 14, color: '#334155', textAlign: 'center', lineHeight: 20, marginBottom: 16 },
-  historyCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#e2e8f0' },
+  successTitle: { fontSize: 18, fontFamily: serif, fontWeight: 'bold', color: colors.successText, marginBottom: 8 },
+  successText: { fontSize: 14, color: colors.ink, textAlign: 'center', lineHeight: 20, marginBottom: 16 },
+  historyCard: { backgroundColor: colors.card, borderRadius: 6, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  historyTitle: { fontSize: 15, fontWeight: 'bold', color: '#0f172a' },
-  badge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 12, fontSize: 10, fontWeight: 'bold' },
-  badgePending: { backgroundColor: '#fef3c7', color: '#d97706' },
-  badgeSuccess: { backgroundColor: '#dcfce7', color: '#15803d' },
-  badgeDanger: { backgroundColor: '#fee2e2', color: '#b91c1c' },
-  historyDetail: { fontSize: 12, color: '#64748b', marginBottom: 2 },
-  historyHighlight: { fontSize: 14, fontWeight: 'bold', color: '#166534', marginVertical: 2 },
+  historyTitle: { fontSize: 15, fontWeight: '600', color: colors.ink },
+  badge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 4, fontSize: 11, fontWeight: '600', overflow: 'hidden' },
+  badgePending: { backgroundColor: colors.pendingBg, color: colors.pendingText },
+  badgeSuccess: { backgroundColor: colors.successBg, color: colors.successText },
+  badgeDanger: { backgroundColor: colors.dangerBg, color: colors.dangerText },
+  badgeProgress: { backgroundColor: colors.progressBg, color: colors.progressText },
+  historyDetail: { fontSize: 12, color: colors.muted, marginBottom: 2 },
+  historyHighlight: { fontSize: 14, fontWeight: '600', color: colors.successText, marginVertical: 2 },
   receiptLink: { marginTop: 6 },
-  receiptLinkText: { fontSize: 12, color: '#2563eb', fontWeight: 'bold' },
-  bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, backgroundColor: '#fff', flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#e2e8f0', justifyContent: 'space-around', alignItems: 'center' }
+  receiptLinkText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
+  bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 64, backgroundColor: colors.card, flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, justifyContent: 'space-around', alignItems: 'center' },
+  navItem: { alignItems: 'center', justifyContent: 'center', paddingTop: 4 },
+  navIcon: { fontSize: 18 },
+  navText: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  navTextActive: { color: colors.primary, fontWeight: '600' },
+  navActiveMark: { width: 16, height: 2, backgroundColor: colors.primary, borderRadius: 1, marginTop: 4 }
 });
