@@ -1,5 +1,6 @@
 {
   "expo": {
+    "name": "CediPay",
     "extra": {
       "eas": {
         "projectId": "6aa0effe-f8df-4fb6-b64a-04f75e32382c"

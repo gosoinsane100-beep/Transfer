@@ -10,177 +10,148 @@ const PAYMENT_HANDLES = {
   BybitPay: 'Bybit UID: 92837410'
 };
 
-const translations = {
-  en: {
-    brandTitle: 'Sudan Remit',
-    langToggle: 'العربية',
-    navHome: 'Home',
-    navSend: 'Send',
-    navHistory: 'History',
-    welcome: 'Welcome',
-    rateTitle: 'Live Exchange Rate',
-    rateSub: '1 USD =',
-    quickSend: 'Send Money to Bankak',
-    quickSendDesc: 'Transfer USD instantly at market rates with $0 hidden fees.',
-    sendNowBtn: 'Send Now',
-    recentActivity: 'Your Recent Activity',
-    noActivity: 'No recent transactions found.',
-    sendTitle: 'New Transfer',
-    sendSubtitle: 'Send USD and receive Sudanese Pounds in Bankak',
-    sendLabel: 'You Send (USD):',
-    feeLabel: 'Platform Fee (5%):',
-    rateLabel: 'Exchange Rate:',
-    loading: 'Loading rate...',
-    receiveLabel: 'Recipient Receives (Bankak):',
-    senderHeader: 'Sender Details',
-    namePlaceholder: 'Full Name',
-    paymentHeader: 'Select Payment Method',
-    sendToNotice: 'Send exact USD amount to this handle:',
-    receiptHeader: 'Attach Payment Proof',
-    bankakHeader: 'Bankak Recipient Details',
-    bankakNumPlaceholder: 'Bankak Account Number',
-    bankakNamePlaceholder: 'Bankak Account Name',
-    submitBtn: 'Submit Transfer',
-    submitting: 'Submitting...',
-    successTitle: 'Order Submitted!',
-    successText: (usd, method, sdg, num) => `Send $${usd} via ${method}. Once verified, ${sdg.toLocaleString()} SDG will be transferred to Bankak account #${num}.`,
-    historyTitle: 'Your Transfer History',
-    historySub: 'Track the real-time status of your payouts',
-    fillAlert: 'Please fill out all required fields and attach a receipt image.',
-    errorConn: 'Error connecting to backend server.',
-    loginTitle: 'Sign In to Your Account',
-    signupTitle: 'Create New Account',
-    authUsername: 'Username',
-    authPassword: 'Password',
-    loginBtn: 'Sign In',
-    signupBtn: 'Create Account',
-    switchSignup: "Don't have an account? Sign Up",
-    switchLogin: 'Already have an account? Sign In',
-    logoutBtn: 'Logout',
-    statusLabels: {
-      pending: 'Pending',
-      payment_received: 'Payment received',
-      sent: 'Sent to Bankak',
-      completed: 'Completed',
-      rejected: 'Rejected'
-    }
-  },
-  ar: {
-    brandTitle: 'تحويل السودان',
-    langToggle: 'English',
-    navHome: 'الرئيسية',
-    navSend: 'تحويل',
-    navHistory: 'السجل',
-    welcome: 'مرحباً بك',
-    rateTitle: 'سعر الصرف المباشر',
-    rateSub: '1 دولار =',
-    quickSend: 'إرسال أموال إلى بنكك',
-    quickSendDesc: 'حوّل الدولار فوراً بأسعار السوق وبدون رسوم خفية.',
-    sendNowBtn: 'أرسل الآن',
-    recentActivity: 'نشاطك الأخير',
-    noActivity: 'لا توجد معاملات سابقة لهذا الحساب.',
-    sendTitle: 'تحويل جديد',
-    sendSubtitle: 'أرسل بالدولار واستلم الجنيه السوداني في حساب بنكك',
-    sendLabel: 'المبلغ المرسل (بالدولار):',
-    feeLabel: 'رسوم المنصة (5%):',
-    rateLabel: 'سعر الصرف:',
-    loading: 'جاري تحميل السعر...',
-    receiveLabel: 'المبلغ المستلم (بنكك):',
-    senderHeader: 'بيانات المرسل',
-    namePlaceholder: 'الاسم الكامل',
-    paymentHeader: 'اختر وسيلة الدفع',
-    sendToNotice: 'قم بتحويل المبلغ إلى الحساب التالي:',
-    receiptHeader: 'إرفاق إيصال التحويل',
-    bankakHeader: 'تفاصيل حساب بنكك للمستلم',
-    bankakNumPlaceholder: 'رقم حساب بنكك',
-    bankakNamePlaceholder: 'اسم صاحب الحساب في بنكك',
-    submitBtn: 'إرسال الطلب',
-    submitting: 'جاري الإرسال...',
-    successTitle: 'تم تقديم الطلب بنجاح!',
-    successText: (usd, method, sdg, num) => `قم بإرسال $${usd} عبر ${method}. بعد التحقق، سيتم تحويل ${sdg.toLocaleString()} جنيه سوداني إلى حساب بنكك رقم #${num}.`,
-    historyTitle: 'سجل تحويلاتك',
-    historySub: 'متابعة حالة الطلبات والدفعات في الوقت الفعلي',
-    fillAlert: 'يرجى ملء جميع الحقول وإرفاق صورة الإيصال.',
-    errorConn: 'خطأ في الاتصال بالسيرفر.',
-    loginTitle: 'تسجيل الدخول إلى حسابك',
-    signupTitle: 'إنشاء حساب جديد',
-    authUsername: 'اسم المستخدم',
-    authPassword: 'كلمة المرور',
-    loginBtn: 'تسجيل الدخول',
-    signupBtn: 'إنشاء حساب',
-    switchSignup: 'ليس لديك حساب؟ سجل الآن',
-    switchLogin: 'لديك حساب بالفعل؟ سجل الدخول',
-    logoutBtn: 'خروج',
-    statusLabels: {
-      pending: 'قيد الانتظار',
-      payment_received: 'تم استلام الدفعة',
-      sent: 'تم الإرسال إلى بنكك',
-      completed: 'مكتمل',
-      rejected: 'مرفوض'
-    }
-  }
+const COUNTRIES = {
+  GH: { label: 'Ghana', currency: 'GHS', symbol: '₵', networks: ['MTN', 'Telecel'] },
+  NG: { label: 'Nigeria', currency: 'NGN', symbol: '₦', networks: [] }
+};
+
+const STATUS_LABELS = {
+  pending: 'Pending',
+  payment_received: 'Payment received',
+  sent: 'Sent',
+  completed: 'Completed',
+  rejected: 'Rejected'
+};
+
+const NEXT_STATUS = { pending: 'payment_received', payment_received: 'sent', sent: 'completed' };
+const ADVANCE_LABEL = {
+  pending: 'Mark payment received',
+  payment_received: 'Mark sent',
+  sent: 'Mark completed'
 };
 
 export default function App() {
-  const [lang, setLang] = useState('en');
-  const [activeTab, setActiveTab] = useState('home');
-  const t = translations[lang];
+  // which sign-in track we're on before anyone is authenticated
+  const [mode, setMode] = useState('customer'); // 'customer' | 'staff'
 
-  // Auth State
+  // Customer auth
   const [user, setUser] = useState(null);
   const [isSignUp, setIsSignUp] = useState(false);
   const [username, setUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
+  // Staff auth
+  const [admin, setAdmin] = useState(null);
+  const [adminToken, setAdminToken] = useState(null);
+  const [isStaffSignUp, setIsStaffSignUp] = useState(false);
+  const [staffUsername, setStaffUsername] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [staffInviteCode, setStaffInviteCode] = useState('');
+  const [staffAuthLoading, setStaffAuthLoading] = useState(false);
+
+  const [activeTab, setActiveTab] = useState('home');
+
+  // Home screen rate preview
+  const [previewCountry, setPreviewCountry] = useState('GH');
+  const [previewRate, setPreviewRate] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   // Transfer form state
   const [amountUSD, setAmountUSD] = useState('100');
-  const [rate, setRate] = useState(8920);
+  const [rate, setRate] = useState(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [senderName, setSenderName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Zelle');
-  const [bankakNumber, setBankakNumber] = useState('');
-  const [bankakName, setBankakName] = useState('');
+  const [recipientCountry, setRecipientCountry] = useState('GH');
+  const [recipientName, setRecipientName] = useState('');
+  const [payoutMethod, setPayoutMethod] = useState('mobile_money');
+  const [mobileNetwork, setMobileNetwork] = useState('MTN');
+  const [mobileMoneyNumber, setMobileMoneyNumber] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [orderSubmitted, setOrderSubmitted] = useState(false);
 
-  // History state
+  // Customer history
   const [transactions, setTransactions] = useState([]);
   const [fetchingHistory, setFetchingHistory] = useState(false);
 
+  // Staff dashboard
+  const [adminTransactions, setAdminTransactions] = useState([]);
+  const [adminFetching, setAdminFetching] = useState(false);
+  const [adminFilter, setAdminFilter] = useState('pending');
+  const [payoutRefDrafts, setPayoutRefDrafts] = useState({});
+  const [actingOnId, setActingOnId] = useState(null);
+
   useEffect(() => {
     if (user) {
-      fetchExchangeRate();
+      fetchExchangeRate(recipientCountry);
       fetchUserHistory(user.email);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      fetchPreviewRate(previewCountry);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewCountry, user]);
+
+  useEffect(() => {
+    if (admin && adminToken) {
+      fetchAdminTransactions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, adminToken]);
+
+  const fetchPreviewRate = async (country) => {
+    try {
+      setPreviewLoading(true);
+      const response = await fetch(`${BACKEND_URL}/api/rate?country=${country}`);
+      const data = await response.json();
+      if (data.success) setPreviewRate(data.rate);
+    } catch (err) {
+      // leave previous value in place
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleCountryChange = (country) => {
+    setRecipientCountry(country);
+    setPayoutMethod(country === 'GH' ? 'mobile_money' : 'bank_transfer');
+    setMobileNetwork(COUNTRIES[country].networks[0] || '');
+    setMobileMoneyNumber('');
+    setBankName('');
+    setBankAccountNumber('');
+    fetchExchangeRate(country);
+  };
 
   const handleAuth = async () => {
     if (!username || !authPassword) {
-      alert('Please enter both username and password.');
+      alert('Enter both a username and a password.');
       return;
     }
-
     setAuthLoading(true);
     const endpoint = isSignUp ? '/api/register' : '/api/login';
-
     try {
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password: authPassword })
       });
-
       const data = await response.json();
       if (data.success) {
         setUser(data.user);
       } else {
-        alert(data.error || 'Authentication failed.');
+        alert(data.error || 'Could not sign you in.');
       }
     } catch (err) {
-      alert('Error connecting to authentication service.');
+      alert('Could not reach the server.');
     } finally {
       setAuthLoading(false);
     }
@@ -190,18 +161,62 @@ export default function App() {
     setUser(null);
     setUsername('');
     setAuthPassword('');
+    setOrderSubmitted(false);
   };
 
-  const fetchExchangeRate = async () => {
+  const handleStaffAuth = async () => {
+    if (!staffUsername || !staffPassword || (isStaffSignUp && !staffInviteCode)) {
+      alert('Fill in every field.');
+      return;
+    }
+    setStaffAuthLoading(true);
+    const endpoint = isStaffSignUp ? '/api/admin/register' : '/api/admin/login';
+    const body = isStaffSignUp
+      ? { username: staffUsername, password: staffPassword, inviteCode: staffInviteCode }
+      : { username: staffUsername, password: staffPassword };
+    try {
+      const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.error || 'Could not sign you in.');
+        return;
+      }
+      if (isStaffSignUp) {
+        alert('Staff account created. Sign in below.');
+        setIsStaffSignUp(false);
+        setStaffPassword('');
+        setStaffInviteCode('');
+        return;
+      }
+      setAdmin(data.admin);
+      setAdminToken(data.token);
+    } catch (err) {
+      alert('Could not reach the server.');
+    } finally {
+      setStaffAuthLoading(false);
+    }
+  };
+
+  const handleStaffLogout = () => {
+    setAdmin(null);
+    setAdminToken(null);
+    setStaffUsername('');
+    setStaffPassword('');
+    setAdminTransactions([]);
+  };
+
+  const fetchExchangeRate = async (country) => {
     try {
       setLoading(true);
-      const response = await fetch(`${BACKEND_URL}/api/rate`);
+      const response = await fetch(`${BACKEND_URL}/api/rate?country=${country}`);
       const data = await response.json();
-      if (data.success && data.rate) {
-        setRate(data.rate);
-      }
+      if (data.success) setRate(data.rate);
     } catch (error) {
-      console.log('Using fallback rate:', error);
+      // keep whatever rate we already had
     } finally {
       setLoading(false);
     }
@@ -212,37 +227,49 @@ export default function App() {
       setFetchingHistory(true);
       const response = await fetch(`${BACKEND_URL}/api/transactions/mine?email=${encodeURIComponent(userEmail)}`);
       const data = await response.json();
-      if (data.success) {
-        setTransactions(data.transactions);
-      }
+      if (data.success) setTransactions(data.transactions);
     } catch (error) {
-      console.log('Error fetching user history:', error);
+      // leave list as-is
     } finally {
       setFetchingHistory(false);
+    }
+  };
+
+  const fetchAdminTransactions = async () => {
+    try {
+      setAdminFetching(true);
+      const response = await fetch(`${BACKEND_URL}/api/admin/transactions`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setAdminTransactions(data.transactions);
+      } else if (response.status === 401 || response.status === 403) {
+        handleStaffLogout();
+      }
+    } catch (error) {
+      // leave list as-is
+    } finally {
+      setAdminFetching(false);
     }
   };
 
   const handleFileChange = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
     setUploadingReceipt(true);
     const formData = new FormData();
     formData.append('receipt', file);
-
     try {
-      const response = await fetch(`${BACKEND_URL}/api/upload`, {
-        method: 'POST',
-        body: formData
-      });
+      const response = await fetch(`${BACKEND_URL}/api/upload`, { method: 'POST', body: formData });
       const data = await response.json();
       if (data.success) {
         setReceiptUrl(data.url);
       } else {
-        alert('Receipt upload failed: ' + data.error);
+        alert('Could not upload that file: ' + data.error);
       }
     } catch (err) {
-      alert('Error uploading receipt image.');
+      alert('Could not upload the receipt image.');
     } finally {
       setUploadingReceipt(false);
     }
@@ -255,19 +282,23 @@ export default function App() {
     return styles.badgePending;
   };
 
-  const statusLabel = (status) => {
-    return t.statusLabels[status] ? t.statusLabels[status] : t.statusLabels.pending;
-  };
+  const statusLabel = (status) => (STATUS_LABELS[status] ? STATUS_LABELS[status] : STATUS_LABELS.pending);
 
   const platformFeePercent = 0.05;
   const numUSD = parseFloat(amountUSD ? amountUSD : '0');
   const feeUSD = numUSD * platformFeePercent;
   const usdAfterFee = numUSD - feeUSD;
-  const sdgAmount = usdAfterFee * rate;
+  const localAmount = rate ? usdAfterFee * rate : null;
+  const countryInfo = COUNTRIES[recipientCountry];
 
   const handleSubmitOrder = async () => {
-    if (!senderName || !bankakNumber || !bankakName) {
-      alert(t.fillAlert);
+    const missingRecipientField =
+      !recipientName ||
+      (payoutMethod === 'mobile_money' && !mobileMoneyNumber) ||
+      (payoutMethod === 'bank_transfer' && (!bankName || !bankAccountNumber));
+
+    if (!senderName || missingRecipientField) {
+      alert("Fill in your name and the recipient's details before submitting.");
       return;
     }
 
@@ -280,56 +311,131 @@ export default function App() {
           senderName,
           senderEmail: user.email,
           amountUSD: numUSD,
-          feeUSD,
-          exchangeRate: rate,
-          amountSDG: sdgAmount,
           paymentMethod,
-          bankakAccountNumber: bankakNumber,
-          bankakAccountName: bankakName,
+          recipientCountry,
+          recipientName,
+          payoutMethod,
+          mobileNetwork: payoutMethod === 'mobile_money' ? mobileNetwork : undefined,
+          mobileMoneyNumber: payoutMethod === 'mobile_money' ? mobileMoneyNumber : undefined,
+          bankName: payoutMethod === 'bank_transfer' ? bankName : undefined,
+          bankAccountNumber: payoutMethod === 'bank_transfer' ? bankAccountNumber : undefined,
           receiptUrl
         })
       });
-
       const data = await response.json();
       if (data.success) {
         setOrderSubmitted(true);
         fetchUserHistory(user.email);
       } else {
-        alert('Failed: ' + data.error);
+        alert('Could not submit that transfer: ' + data.error);
       }
     } catch (err) {
-      alert(t.errorConn);
+      alert('Could not reach the server.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (!user) {
+  const handleAdvanceStatus = async (item) => {
+    const next = NEXT_STATUS[item.status];
+    if (!next) return;
+    if (next === 'sent' && !(payoutRefDrafts[item.id] || '').trim()) {
+      alert('Enter a payout reference before marking this as sent.');
+      return;
+    }
+    setActingOnId(item.id);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/admin/transactions/${item.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ status: next, payoutReference: payoutRefDrafts[item.id] })
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchAdminTransactions();
+      } else {
+        alert(data.error || 'Could not update that transfer.');
+      }
+    } catch (err) {
+      alert('Could not reach the server.');
+    } finally {
+      setActingOnId(null);
+    }
+  };
+
+  const handleReject = async (item) => {
+    setActingOnId(item.id);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/admin/transactions/${item.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ status: 'rejected' })
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchAdminTransactions();
+      } else {
+        alert(data.error || 'Could not update that transfer.');
+      }
+    } catch (err) {
+      alert('Could not reach the server.');
+    } finally {
+      setActingOnId(null);
+    }
+  };
+
+  const recipientLine = (item) => {
+    if (item.payout_method === 'mobile_money') {
+      return `${item.mobile_network || ''} ${item.mobile_money_number || ''}`.trim();
+    }
+    if (item.payout_method === 'bank_transfer') {
+      return `${item.bank_name || ''} · ${item.bank_account_number || ''}`;
+    }
+    return '—';
+  };
+
+  const adminFilteredTransactions = adminTransactions.filter((item) => {
+    if (adminFilter === 'all') return true;
+    if (adminFilter === 'in_progress') return item.status === 'payment_received' || item.status === 'sent';
+    return item.status === adminFilter;
+  });
+
+  // ---------------------------------------------------------------
+  // Staff sign-in / sign-up
+  // ---------------------------------------------------------------
+  if (!user && !admin && mode === 'staff') {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.topBar}>
-          <Text style={styles.brandTitle}>{t.brandTitle}</Text>
-          <TouchableOpacity style={styles.langBtn} onPress={() => setLang(lang === 'en' ? 'ar' : 'en')}>
-            <Text style={styles.langBtnText}>{t.langToggle}</Text>
-          </TouchableOpacity>
+        <View style={styles.topBarDark}>
+          <Text style={styles.brandTitle}>CediPay staff</Text>
         </View>
-
         <ScrollView contentContainerStyle={styles.scrollCenter}>
           <View style={styles.authCard}>
-            <Text style={styles.title}>{isSignUp ? t.signupTitle : t.loginTitle}</Text>
+            <Text style={styles.title}>{isStaffSignUp ? 'Create staff account' : 'Staff sign in'}</Text>
 
-            <Text style={styles.label}>{t.authUsername}</Text>
-            <TextInput style={styles.inputMargin} autoCapitalize="none" value={username} onChangeText={setUsername} placeholder="e.g. ahmed123" />
+            <Text style={styles.label}>Staff username</Text>
+            <TextInput style={styles.inputMargin} autoCapitalize="none" value={staffUsername} onChangeText={setStaffUsername} placeholder="e.g. kwame" />
 
-            <Text style={styles.label}>{t.authPassword}</Text>
-            <TextInput style={styles.inputMargin} secureTextEntry value={authPassword} onChangeText={setAuthPassword} placeholder="••••••••" />
+            <Text style={styles.label}>Password</Text>
+            <TextInput style={styles.inputMargin} secureTextEntry value={staffPassword} onChangeText={setStaffPassword} placeholder="••••••••" />
 
-            <TouchableOpacity style={styles.button} onPress={handleAuth} disabled={authLoading}>
-              {authLoading ? <ActivityIndicator color="#F4F6FA" /> : <Text style={styles.buttonText}>{isSignUp ? t.signupBtn : t.loginBtn}</Text>}
+            {isStaffSignUp && (
+              <>
+                <Text style={styles.label}>Invite code</Text>
+                <TextInput style={styles.inputMargin} secureTextEntry value={staffInviteCode} onChangeText={setStaffInviteCode} placeholder="Given to you by the owner" />
+              </>
+            )}
+
+            <TouchableOpacity style={styles.button} onPress={handleStaffAuth} disabled={staffAuthLoading}>
+              {staffAuthLoading ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>{isStaffSignUp ? 'Create account' : 'Sign in'}</Text>}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setIsSignUp(!isSignUp)}>
-              <Text style={styles.switchAuthText}>{isSignUp ? t.switchLogin : t.switchSignup}</Text>
+            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setIsStaffSignUp(!isStaffSignUp)}>
+              <Text style={styles.switchAuthText}>{isStaffSignUp ? 'Already have a staff account? Sign in' : 'Have an invite code? Create a staff account'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setMode('customer')}>
+              <Text style={styles.backLinkText}>Back to customer sign in</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -337,60 +443,182 @@ export default function App() {
     );
   }
 
-  const userDisplayName = user.username ? user.username : 'User';
+  // ---------------------------------------------------------------
+  // Staff dashboard
+  // ---------------------------------------------------------------
+  if (admin) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.topBarDark}>
+          <View>
+            <Text style={styles.brandTitle}>CediPay staff</Text>
+            <Text style={styles.userSubText}>Signed in as {admin.displayName || admin.username}</Text>
+          </View>
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleStaffLogout}>
+            <Text style={styles.logoutBtnText}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.filterRow}>
+          {['pending', 'in_progress', 'completed', 'rejected', 'all'].map((f) => (
+            <TouchableOpacity key={f} style={[styles.filterChip, adminFilter === f && styles.filterChipActive]} onPress={() => setAdminFilter(f)}>
+              <Text style={[styles.filterChipText, adminFilter === f && styles.filterChipTextActive]}>
+                {f === 'in_progress' ? 'In progress' : f.charAt(0).toUpperCase() + f.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {adminFetching ? (
+            <ActivityIndicator size="large" color="#0F4C3A" style={{ marginVertical: 20 }} />
+          ) : adminFilteredTransactions.length === 0 ? (
+            <Text style={styles.emptyText}>Nothing here.</Text>
+          ) : (
+            adminFilteredTransactions.map((item) => (
+              <View key={item.id} style={styles.historyCard}>
+                <View style={styles.historyHeader}>
+                  <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
+                  <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
+                </View>
+                <Text style={styles.historyDetail}>{item.sender_name} · {item.sender_email}</Text>
+                <Text style={styles.historyDetail}>${item.amount_usd} via {item.payment_method}</Text>
+                <Text style={styles.historyHighlight}>
+                  To {item.recipient_name} — {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? Number(item.amount_local).toLocaleString() : '—'} {item.local_currency}
+                </Text>
+                <Text style={styles.historyDetail}>{recipientLine(item)}</Text>
+                {item.payout_reference ? <Text style={styles.historyDetail}>Payout ref: {item.payout_reference}</Text> : null}
+                {item.receipt_url ? (
+                  <TouchableOpacity onPress={() => Linking.openURL(item.receipt_url)} style={styles.receiptLink}>
+                    <Text style={styles.receiptLinkText}>View payment proof</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {item.status === 'payment_received' && (
+                  <TextInput
+                    style={styles.inputMargin}
+                    placeholder="Payout reference (required to mark sent)"
+                    value={payoutRefDrafts[item.id] || ''}
+                    onChangeText={(val) => setPayoutRefDrafts((prev) => ({ ...prev, [item.id]: val }))}
+                  />
+                )}
+
+                {NEXT_STATUS[item.status] && (
+                  <TouchableOpacity style={styles.adminActionBtn} onPress={() => handleAdvanceStatus(item)} disabled={actingOnId === item.id}>
+                    {actingOnId === item.id ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>{ADVANCE_LABEL[item.status]}</Text>}
+                  </TouchableOpacity>
+                )}
+                {item.status !== 'completed' && item.status !== 'rejected' && (
+                  <TouchableOpacity style={styles.adminRejectBtn} onPress={() => handleReject(item)} disabled={actingOnId === item.id}>
+                    <Text style={styles.adminRejectText}>Reject</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ---------------------------------------------------------------
+  // Customer sign-in / sign-up
+  // ---------------------------------------------------------------
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.topBarDark}>
+          <Text style={styles.brandTitle}>CediPay</Text>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollCenter}>
+          <View style={styles.authCard}>
+            <Text style={styles.title}>{isSignUp ? 'Create your account' : 'Sign in'}</Text>
+
+            <Text style={styles.label}>Username</Text>
+            <TextInput style={styles.inputMargin} autoCapitalize="none" value={username} onChangeText={setUsername} placeholder="e.g. ama123" />
+
+            <Text style={styles.label}>Password</Text>
+            <TextInput style={styles.inputMargin} secureTextEntry value={authPassword} onChangeText={setAuthPassword} placeholder="••••••••" />
+
+            <TouchableOpacity style={styles.button} onPress={handleAuth} disabled={authLoading}>
+              {authLoading ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>{isSignUp ? 'Create account' : 'Sign in'}</Text>}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setIsSignUp(!isSignUp)}>
+              <Text style={styles.switchAuthText}>{isSignUp ? 'Already have an account? Sign in' : 'New here? Create an account'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setMode('staff')}>
+              <Text style={styles.backLinkText}>Staff sign in</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ---------------------------------------------------------------
+  // Customer app
+  // ---------------------------------------------------------------
+  const userDisplayName = user.username ? user.username : 'there';
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.topBar}>
+      <View style={styles.topBarDark}>
         <View>
-          <Text style={styles.brandTitle}>{t.brandTitle}</Text>
+          <Text style={styles.brandTitle}>CediPay</Text>
           <Text style={styles.userSubText}>@{userDisplayName}</Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TouchableOpacity style={styles.langBtn} onPress={() => setLang(lang === 'en' ? 'ar' : 'en')}>
-            <Text style={styles.langBtnText}>{t.langToggle}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>{t.logoutBtn}</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Text style={styles.logoutBtnText}>Sign out</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {activeTab === 'home' && (
           <View style={styles.screenContainer}>
-            <Text style={styles.greetingText}>{t.welcome}, @{userDisplayName}</Text>
+            <Text style={styles.greetingText}>Welcome back, @{userDisplayName}</Text>
 
             <View style={styles.rateCard}>
-              <Text style={styles.rateCardTitle}>{t.rateTitle}</Text>
-              <View style={styles.rateRule} />
-              <Text style={styles.rateCardValue}>
-                {t.rateSub}{' '}
-                <Text style={styles.rateHighlight}>{loading ? t.loading : `${rate.toLocaleString()} SDG`}</Text>
-              </Text>
+              <View style={styles.rateCardTop}>
+                <Text style={styles.rateCardTitle}>Exchange rate</Text>
+                <View style={styles.countryToggleRow}>
+                  {Object.keys(COUNTRIES).map((code) => (
+                    <TouchableOpacity key={code} style={[styles.countryPill, previewCountry === code && styles.countryPillActive]} onPress={() => setPreviewCountry(code)}>
+                      <Text style={[styles.countryPillText, previewCountry === code && styles.countryPillTextActive]}>{code}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              <View style={styles.rateRow}>
+                <Text style={styles.currencySymbol}>{COUNTRIES[previewCountry].symbol}</Text>
+                <Text style={styles.rateHighlight}>
+                  {previewLoading || previewRate === null ? '···' : previewRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <Text style={styles.rateCardSub}>per 1 USD, to {COUNTRIES[previewCountry].label}</Text>
             </View>
 
             <View style={styles.bannerCard}>
-              <Text style={styles.bannerTitle}>{t.quickSend}</Text>
-              <Text style={styles.bannerDesc}>{t.quickSendDesc}</Text>
+              <Text style={styles.bannerTitle}>Send money home</Text>
+              <Text style={styles.bannerDesc}>Send USD from the US — your family receives mobile money or a bank transfer in Ghana or Nigeria, usually within a day.</Text>
               <TouchableOpacity style={styles.bannerBtn} onPress={() => setActiveTab('send')}>
-                <Text style={styles.bannerBtnText}>{t.sendNowBtn}</Text>
+                <Text style={styles.bannerBtnText}>Send money</Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.sectionTitle}>{t.recentActivity}</Text>
+            <Text style={styles.sectionTitle}>Recent activity</Text>
             {transactions.length === 0 ? (
-              <Text style={styles.emptyText}>{t.noActivity}</Text>
+              <Text style={styles.emptyText}>No transfers yet.</Text>
             ) : (
               transactions.slice(0, 3).map((item) => (
                 <View key={item.id} style={styles.miniCard}>
                   <View>
-                    <Text style={styles.miniCardTitle}>Transfer to {item.bankak_account_name}</Text>
+                    <Text style={styles.miniCardTitle}>To {item.recipient_name}</Text>
                     <Text style={styles.miniCardSub}>${item.amount_usd} USD ({item.payment_method})</Text>
                   </View>
-                  <Text style={[styles.miniStatus, statusStyle(item.status)]}>
-                    {statusLabel(item.status)}
-                  </Text>
+                  <Text style={[styles.miniStatus, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                 </View>
               ))
             )}
@@ -399,70 +627,106 @@ export default function App() {
 
         {activeTab === 'send' && (
           <View style={styles.screenContainer}>
-            <Text style={styles.title}>{t.sendTitle}</Text>
-            <Text style={styles.subtitle}>{t.sendSubtitle}</Text>
+            <Text style={styles.title}>New transfer</Text>
+            <Text style={styles.subtitle}>Send USD, your family receives local currency</Text>
 
             {orderSubmitted ? (
               <View style={styles.successContainer}>
-                <Text style={styles.successTitle}>{t.successTitle}</Text>
+                <Text style={styles.successTitle}>Transfer submitted</Text>
                 <Text style={styles.successText}>
-                  {t.successText(numUSD, paymentMethod, sdgAmount, bankakNumber)}
+                  Send ${numUSD} via {paymentMethod}. Once it's confirmed, {countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'} will go out to {recipientName}.
                 </Text>
                 <TouchableOpacity style={styles.button} onPress={() => { setOrderSubmitted(false); setActiveTab('history'); }}>
-                  <Text style={styles.buttonText}>View in History</Text>
+                  <Text style={styles.buttonText}>View in history</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <>
+                <Text style={styles.sectionHeader}>Sending to</Text>
+                <View style={styles.railRow}>
+                  {Object.keys(COUNTRIES).map((code) => (
+                    <TouchableOpacity key={code} style={[styles.railButton, recipientCountry === code && styles.railButtonActive]} onPress={() => handleCountryChange(code)}>
+                      <Text style={[styles.railText, recipientCountry === code && styles.railTextActive]}>{COUNTRIES[code].label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
                 <View style={styles.inputContainer}>
-                  <Text style={styles.label}>{t.sendLabel}</Text>
+                  <Text style={styles.label}>You send</Text>
                   <TextInput style={styles.input} keyboardType="numeric" value={amountUSD} onChangeText={setAmountUSD} />
                 </View>
 
                 <View style={styles.infoBox}>
-                  <Text style={styles.infoText}>{t.feeLabel} ${feeUSD.toFixed(2)}</Text>
-                  <Text style={styles.infoText}>{t.rateLabel} $1 = {loading ? t.loading : `${rate} SDG`}</Text>
+                  <Text style={styles.infoText}>Fee (5%): ${feeUSD.toFixed(2)}</Text>
+                  <Text style={styles.infoText}>Rate: $1 = {loading || rate === null ? '···' : rate.toLocaleString(undefined, { maximumFractionDigits: 2 })} {countryInfo.currency}</Text>
                 </View>
 
                 <View style={styles.resultContainer}>
-                  <Text style={styles.resultLabel}>{t.receiveLabel}</Text>
-                  <Text style={styles.resultValue}>{sdgAmount.toLocaleString()} SDG</Text>
+                  <Text style={styles.resultLabel}>They receive</Text>
+                  <Text style={styles.resultValue}>{countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'}</Text>
                 </View>
 
-                <Text style={styles.sectionHeader}>{t.senderHeader}</Text>
-                <TextInput style={styles.inputMargin} placeholder={t.namePlaceholder} value={senderName} onChangeText={setSenderName} />
+                <Text style={styles.sectionHeader}>Your details</Text>
+                <TextInput style={styles.inputMargin} placeholder="Full name" value={senderName} onChangeText={setSenderName} />
 
-                <Text style={styles.sectionHeader}>{t.paymentHeader}</Text>
+                <Text style={styles.sectionHeader}>How you're paying</Text>
                 <View style={styles.railRow}>
                   {['Zelle', 'PayPal_FF', 'BinancePay', 'BybitPay'].map((method) => (
-                    <TouchableOpacity
-                      key={method}
-                      style={[styles.railButton, paymentMethod === method && styles.railButtonActive]}
-                      onPress={() => setPaymentMethod(method)}
-                    >
+                    <TouchableOpacity key={method} style={[styles.railButton, paymentMethod === method && styles.railButtonActive]} onPress={() => setPaymentMethod(method)}>
                       <Text style={[styles.railText, paymentMethod === method && styles.railTextActive]}>{method}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
 
                 <View style={styles.handleBox}>
-                  <Text style={styles.handleLabel}>{t.sendToNotice}</Text>
+                  <Text style={styles.handleLabel}>Send the exact amount to:</Text>
                   <Text style={styles.handleText}>{PAYMENT_HANDLES[paymentMethod]}</Text>
                 </View>
 
-                <Text style={styles.sectionHeader}>{t.receiptHeader}</Text>
+                <Text style={styles.sectionHeader}>Payment proof</Text>
                 <View style={styles.uploadContainer}>
                   <input type="file" accept="image/*" onChange={handleFileChange} style={{ marginBottom: 8 }} />
-                  {uploadingReceipt && <Text style={styles.uploadingText}>Uploading receipt...</Text>}
-                  {receiptUrl ? <Text style={styles.uploadedText}>✓ Receipt attached</Text> : null}
+                  {uploadingReceipt && <Text style={styles.uploadingText}>Uploading…</Text>}
+                  {receiptUrl ? <Text style={styles.uploadedText}>Receipt attached</Text> : null}
                 </View>
 
-                <Text style={styles.sectionHeader}>{t.bankakHeader}</Text>
-                <TextInput style={styles.inputMargin} placeholder={t.bankakNumPlaceholder} keyboardType="numeric" value={bankakNumber} onChangeText={setBankakNumber} />
-                <TextInput style={styles.inputMargin} placeholder={t.bankakNamePlaceholder} value={bankakName} onChangeText={setBankakName} />
+                <Text style={styles.sectionHeader}>Recipient details</Text>
+                <TextInput style={styles.inputMargin} placeholder="Recipient full name" value={recipientName} onChangeText={setRecipientName} />
+
+                <Text style={styles.sectionHeader}>How they'll receive it</Text>
+                <View style={styles.railRow}>
+                  {countryInfo.networks.length > 0 && (
+                    <TouchableOpacity style={[styles.railButton, payoutMethod === 'mobile_money' && styles.railButtonActive]} onPress={() => setPayoutMethod('mobile_money')}>
+                      <Text style={[styles.railText, payoutMethod === 'mobile_money' && styles.railTextActive]}>Mobile money</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={[styles.railButton, payoutMethod === 'bank_transfer' && styles.railButtonActive]} onPress={() => setPayoutMethod('bank_transfer')}>
+                    <Text style={[styles.railText, payoutMethod === 'bank_transfer' && styles.railTextActive]}>Bank transfer</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {payoutMethod === 'mobile_money' && countryInfo.networks.length > 0 && (
+                  <>
+                    <View style={styles.railRow}>
+                      {countryInfo.networks.map((net) => (
+                        <TouchableOpacity key={net} style={[styles.railButton, mobileNetwork === net && styles.railButtonActive]} onPress={() => setMobileNetwork(net)}>
+                          <Text style={[styles.railText, mobileNetwork === net && styles.railTextActive]}>{net}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TextInput style={styles.inputMargin} placeholder="Mobile money number" keyboardType="phone-pad" value={mobileMoneyNumber} onChangeText={setMobileMoneyNumber} />
+                  </>
+                )}
+
+                {payoutMethod === 'bank_transfer' && (
+                  <>
+                    <TextInput style={styles.inputMargin} placeholder="Bank name" value={bankName} onChangeText={setBankName} />
+                    <TextInput style={styles.inputMargin} placeholder="Account number" keyboardType="numeric" value={bankAccountNumber} onChangeText={setBankAccountNumber} />
+                  </>
+                )}
 
                 <TouchableOpacity style={styles.button} onPress={handleSubmitOrder} disabled={submitting}>
-                  {submitting ? <ActivityIndicator color="#F4F6FA" /> : <Text style={styles.buttonText}>{t.submitBtn}</Text>}
+                  {submitting ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Submit transfer</Text>}
                 </TouchableOpacity>
               </>
             )}
@@ -471,29 +735,29 @@ export default function App() {
 
         {activeTab === 'history' && (
           <View style={styles.screenContainer}>
-            <Text style={styles.title}>{t.historyTitle}</Text>
-            <Text style={styles.subtitle}>{t.historySub}</Text>
+            <Text style={styles.title}>Your transfers</Text>
+            <Text style={styles.subtitle}>Track each transfer's status</Text>
 
             {fetchingHistory ? (
-              <ActivityIndicator size="large" color="#0B3B63" style={{ marginVertical: 20 }} />
+              <ActivityIndicator size="large" color="#0F4C3A" style={{ marginVertical: 20 }} />
             ) : transactions.length === 0 ? (
-              <Text style={styles.emptyText}>{t.noActivity}</Text>
+              <Text style={styles.emptyText}>No transfers yet.</Text>
             ) : (
               transactions.map((item) => (
                 <View key={item.id} style={styles.historyCard}>
                   <View style={styles.historyHeader}>
                     <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
-                    <Text style={[styles.badge, statusStyle(item.status)]}>
-                      {statusLabel(item.status)}
-                    </Text>
+                    <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                   </View>
                   <Text style={styles.historyDetail}>Paid: ${item.amount_usd} USD via {item.payment_method}</Text>
-                  <Text style={styles.historyHighlight}>Payout: {item.amount_sdg ? item.amount_sdg.toLocaleString() : 0} SDG</Text>
-                  <Text style={styles.historyDetail}>Bankak Acc: {item.bankak_account_number} ({item.bankak_account_name})</Text>
+                  <Text style={styles.historyHighlight}>
+                    Payout: {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? Number(item.amount_local).toLocaleString() : '—'} {item.local_currency}
+                  </Text>
+                  <Text style={styles.historyDetail}>To: {item.recipient_name} — {recipientLine(item)}</Text>
 
                   {item.receipt_url ? (
                     <TouchableOpacity onPress={() => Linking.openURL(item.receipt_url)} style={styles.receiptLink}>
-                      <Text style={styles.receiptLinkText}>📎 View attached receipt</Text>
+                      <Text style={styles.receiptLinkText}>View attached receipt</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -505,20 +769,20 @@ export default function App() {
 
       <View style={styles.bottomNav}>
         <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('home')}>
-          <Text style={styles.navIcon}>🏠</Text>
-          <Text style={[styles.navText, activeTab === 'home' && styles.navTextActive]}>{t.navHome}</Text>
+          <Text style={styles.navIcon}>⌂</Text>
+          <Text style={[styles.navText, activeTab === 'home' && styles.navTextActive]}>Home</Text>
           {activeTab === 'home' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('send')}>
-          <Text style={styles.navIcon}>💸</Text>
-          <Text style={[styles.navText, activeTab === 'send' && styles.navTextActive]}>{t.navSend}</Text>
+          <Text style={styles.navIcon}>↗</Text>
+          <Text style={[styles.navText, activeTab === 'send' && styles.navTextActive]}>Send</Text>
           {activeTab === 'send' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('history')}>
-          <Text style={styles.navIcon}>📜</Text>
-          <Text style={[styles.navText, activeTab === 'history' && styles.navTextActive]}>{t.navHistory}</Text>
+          <Text style={styles.navIcon}>☰</Text>
+          <Text style={[styles.navText, activeTab === 'history' && styles.navTextActive]}>History</Text>
           {activeTab === 'history' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
       </View>
@@ -527,110 +791,132 @@ export default function App() {
 }
 
 // ---- Visual tokens -------------------------------------------------
-// A deep banking navy + warm brass palette, deliberately echoing the
-// Bankak app this audience already uses and trusts daily — the goal is
-// for this to read as "another screen from my bank," not a new,
-// unfamiliar startup. Flat surfaces and hairline rules instead of
-// shadow-heavy cards, a serif reserved for headings and the rate/payout
-// numbers (the two things a sender actually came to look at), and a
-// single warm accent spent only on the primary action and the amounts.
+// CediPay's identity: a light, warm-neutral surface rather than a dark
+// "legacy bank" shell, a single deep teal used for structural dark
+// surfaces (top bar, the rate panel, primary buttons), and one vivid
+// marigold spent only on the numbers that represent money — the rate,
+// the payout amount, the currency symbol. The currency symbol (₵ or ₦)
+// sits directly in the rate display because the app spans two
+// currencies now; it's information, not decoration. Flat hairline-bordered
+// cards, no shadows, bold numerals instead of a display serif.
 const colors = {
-  ink: '#111C2B',
-  paper: '#F4F6FA',
+  ink: '#16231F',
+  paper: '#FAFBF7',
   card: '#FFFFFF',
-  border: '#D9E1EC',
-  muted: '#5B6B80',
-  primary: '#0B3B63',
-  primaryPressed: '#082C4A',
-  gold: '#B8841F',
-  pendingBg: '#F6EAD2',
-  pendingText: '#8A6111',
-  progressBg: '#E1EAF5',
-  progressText: '#0B3B63',
-  successBg: '#DCEEE1',
-  successText: '#09573F',
-  dangerBg: '#F3DEDE',
-  dangerText: '#8C1D1D'
+  border: '#DCE5DE',
+  muted: '#5C6B64',
+  surface: '#0F4C3A',
+  surfacePressed: '#0A3A2C',
+  gold: '#E3A530',
+  goldSoft: '#FBEACB',
+  pendingBg: '#FBEACB',
+  pendingText: '#8A5A10',
+  progressBg: '#DDEAE4',
+  progressText: '#0F4C3A',
+  successBg: '#DCF0E4',
+  successText: '#146241',
+  dangerBg: '#F7E0DC',
+  dangerText: '#9A3B2E'
 };
-
-const serif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.paper },
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, backgroundColor: colors.ink },
-  brandTitle: { fontSize: 18, fontFamily: serif, fontWeight: 'bold', color: colors.paper },
-  userSubText: { fontSize: 11, color: colors.gold, marginTop: 2 },
-  langBtn: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 4, borderWidth: 1, borderColor: colors.gold },
-  langBtnText: { fontSize: 12, fontWeight: '600', color: colors.gold },
-  logoutBtn: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 4, borderWidth: 1, borderColor: '#3A4D63' },
+  topBarDark: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: colors.surface },
+  brandTitle: { fontSize: 19, fontWeight: '800', color: colors.paper, letterSpacing: 0.2 },
+  userSubText: { fontSize: 12, color: colors.gold, marginTop: 2 },
+  logoutBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(250,251,247,0.35)' },
   logoutBtnText: { fontSize: 12, fontWeight: '600', color: colors.paper },
-  scroll: { padding: 16, paddingBottom: 90 },
+  scroll: { padding: 16, paddingBottom: 96 },
   scrollCenter: { flexGrow: 1, justifyContent: 'center', padding: 20 },
-  authCard: { backgroundColor: colors.card, borderRadius: 6, padding: 20, borderWidth: 1, borderColor: colors.border },
+  authCard: { backgroundColor: colors.card, borderRadius: 14, padding: 22, borderWidth: 1, borderColor: colors.border },
   switchAuthBtn: { marginTop: 14, alignItems: 'center' },
-  switchAuthText: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+  switchAuthText: { fontSize: 13, color: colors.surface, fontWeight: '600' },
+  backLinkText: { fontSize: 12, color: colors.muted, fontWeight: '600' },
   screenContainer: { flex: 1 },
-  greetingText: { fontSize: 19, fontFamily: serif, color: colors.ink, marginBottom: 14 },
-  rateCard: { backgroundColor: colors.ink, borderRadius: 6, padding: 18, marginBottom: 16 },
-  rateCardTitle: { fontSize: 12, color: '#AFC2D6', letterSpacing: 0.3 },
-  rateRule: { height: 1, backgroundColor: colors.gold, opacity: 0.5, marginVertical: 10, width: 48 },
-  rateCardValue: { fontSize: 15, color: '#E4EAF2' },
-  rateHighlight: { fontSize: 26, fontFamily: serif, fontWeight: 'bold', color: colors.gold },
-  bannerCard: { backgroundColor: colors.card, borderRadius: 6, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: colors.border, borderLeftWidth: 3, borderLeftColor: colors.primary },
-  bannerTitle: { fontSize: 17, fontFamily: serif, fontWeight: 'bold', color: colors.ink },
-  bannerDesc: { fontSize: 13, color: colors.muted, marginTop: 4, marginBottom: 14, lineHeight: 18 },
-  bannerBtn: { backgroundColor: colors.primary, paddingVertical: 9, paddingHorizontal: 18, borderRadius: 4, alignSelf: 'flex-start' },
-  bannerBtnText: { fontSize: 13, fontWeight: '600', color: colors.paper },
-  sectionTitle: { fontSize: 15, fontWeight: '600', color: colors.ink, marginBottom: 10 },
+  greetingText: { fontSize: 19, fontWeight: '700', color: colors.ink, marginBottom: 14 },
+
+  rateCard: { backgroundColor: colors.surface, borderRadius: 14, padding: 18, marginBottom: 16 },
+  rateCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  rateCardTitle: { fontSize: 12, color: 'rgba(250,251,247,0.7)', letterSpacing: 0.2 },
+  countryToggleRow: { flexDirection: 'row', gap: 6 },
+  countryPill: { paddingVertical: 3, paddingHorizontal: 9, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(250,251,247,0.35)' },
+  countryPillActive: { backgroundColor: colors.gold, borderColor: colors.gold },
+  countryPillText: { fontSize: 11, fontWeight: '700', color: 'rgba(250,251,247,0.8)' },
+  countryPillTextActive: { color: colors.surface },
+  rateRow: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 10 },
+  currencySymbol: { fontSize: 24, fontWeight: '800', color: colors.gold, marginRight: 6, marginBottom: 2 },
+  rateHighlight: { fontSize: 34, fontWeight: '800', color: colors.gold, letterSpacing: -0.5 },
+  rateCardSub: { fontSize: 12, color: 'rgba(250,251,247,0.65)', marginTop: 4 },
+
+  bannerCard: { backgroundColor: colors.card, borderRadius: 14, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: colors.border },
+  bannerTitle: { fontSize: 17, fontWeight: '700', color: colors.ink },
+  bannerDesc: { fontSize: 13, color: colors.muted, marginTop: 4, marginBottom: 14, lineHeight: 19 },
+  bannerBtn: { backgroundColor: colors.surface, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10, alignSelf: 'flex-start' },
+  bannerBtnText: { fontSize: 13, fontWeight: '700', color: colors.paper },
+
+  sectionTitle: { fontSize: 15, fontWeight: '700', color: colors.ink, marginBottom: 10 },
   emptyText: { fontSize: 13, color: colors.muted, fontStyle: 'italic', marginVertical: 10 },
-  miniCard: { backgroundColor: colors.card, padding: 12, borderRadius: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: colors.border },
-  miniCardTitle: { fontSize: 14, fontWeight: '600', color: colors.ink },
+  miniCard: { backgroundColor: colors.card, padding: 12, borderRadius: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: colors.border },
+  miniCardTitle: { fontSize: 14, fontWeight: '700', color: colors.ink },
   miniCardSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
-  miniStatus: { fontSize: 11, fontWeight: '600', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 4, overflow: 'hidden' },
-  title: { fontSize: 20, fontFamily: serif, fontWeight: 'bold', color: colors.ink, textAlign: 'center', marginBottom: 6 },
+  miniStatus: { fontSize: 11, fontWeight: '700', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 20, overflow: 'hidden' },
+
+  title: { fontSize: 20, fontWeight: '800', color: colors.ink, textAlign: 'center', marginBottom: 6 },
   subtitle: { fontSize: 13, color: colors.muted, textAlign: 'center', marginBottom: 18 },
   inputContainer: { marginBottom: 12 },
   label: { fontSize: 13, fontWeight: '600', color: colors.ink, marginBottom: 4 },
-  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 10, fontSize: 18, backgroundColor: colors.card, color: colors.ink },
-  inputMargin: { borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 10, fontSize: 14, marginBottom: 10, backgroundColor: colors.card, color: colors.ink },
-  infoBox: { backgroundColor: colors.card, padding: 10, borderRadius: 4, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 10, fontSize: 18, backgroundColor: colors.card, color: colors.ink },
+  inputMargin: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 10, fontSize: 14, marginBottom: 10, backgroundColor: colors.card, color: colors.ink },
+  infoBox: { backgroundColor: colors.card, padding: 10, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
   infoText: { fontSize: 13, color: colors.muted, marginVertical: 2 },
-  resultContainer: { alignItems: 'center', marginVertical: 12, padding: 16, backgroundColor: colors.ink, borderRadius: 6 },
-  resultLabel: { fontSize: 12, color: '#AFC2D6' },
-  resultValue: { fontSize: 24, fontFamily: serif, fontWeight: 'bold', color: colors.gold, marginTop: 4 },
-  sectionHeader: { fontSize: 14, fontWeight: '600', color: colors.ink, marginTop: 10, marginBottom: 8 },
+  resultContainer: { alignItems: 'center', marginVertical: 12, padding: 18, backgroundColor: colors.surface, borderRadius: 14 },
+  resultLabel: { fontSize: 12, color: 'rgba(250,251,247,0.7)' },
+  resultValue: { fontSize: 28, fontWeight: '800', color: colors.gold, marginTop: 4, letterSpacing: -0.5 },
+  sectionHeader: { fontSize: 14, fontWeight: '700', color: colors.ink, marginTop: 10, marginBottom: 8 },
   railRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  railButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 4, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
-  railButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  railButton: { paddingVertical: 8, paddingHorizontal: 13, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  railButtonActive: { backgroundColor: colors.surface, borderColor: colors.surface },
   railText: { fontSize: 12, color: colors.ink, fontWeight: '600' },
   railTextActive: { color: colors.paper },
-  handleBox: { backgroundColor: colors.card, padding: 10, borderRadius: 4, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
+  handleBox: { backgroundColor: colors.card, padding: 10, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
   handleLabel: { fontSize: 11, color: colors.muted },
   handleText: { fontSize: 14, color: colors.ink, fontWeight: '600', marginTop: 2 },
-  uploadContainer: { marginBottom: 12, padding: 10, backgroundColor: colors.card, borderRadius: 4, borderWidth: 1, borderColor: colors.border },
-  uploadingText: { fontSize: 12, color: colors.primary },
+  uploadContainer: { marginBottom: 12, padding: 10, backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border },
+  uploadingText: { fontSize: 12, color: colors.surface },
   uploadedText: { fontSize: 13, color: colors.successText, fontWeight: '600' },
-  button: { backgroundColor: colors.primary, paddingVertical: 13, borderRadius: 4, alignItems: 'center', marginTop: 10 },
-  buttonText: { color: colors.paper, fontSize: 15, fontWeight: '600' },
+  button: { backgroundColor: colors.surface, paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  buttonText: { color: colors.paper, fontSize: 15, fontWeight: '700' },
   successContainer: { padding: 16, alignItems: 'center' },
-  successTitle: { fontSize: 18, fontFamily: serif, fontWeight: 'bold', color: colors.successText, marginBottom: 8 },
+  successTitle: { fontSize: 18, fontWeight: '800', color: colors.successText, marginBottom: 8 },
   successText: { fontSize: 14, color: colors.ink, textAlign: 'center', lineHeight: 20, marginBottom: 16 },
-  historyCard: { backgroundColor: colors.card, borderRadius: 6, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border },
+
+  historyCard: { backgroundColor: colors.card, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  historyTitle: { fontSize: 15, fontWeight: '600', color: colors.ink },
-  badge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 4, fontSize: 11, fontWeight: '600', overflow: 'hidden' },
+  historyTitle: { fontSize: 15, fontWeight: '700', color: colors.ink },
+  badge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 20, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
   badgePending: { backgroundColor: colors.pendingBg, color: colors.pendingText },
   badgeSuccess: { backgroundColor: colors.successBg, color: colors.successText },
   badgeDanger: { backgroundColor: colors.dangerBg, color: colors.dangerText },
   badgeProgress: { backgroundColor: colors.progressBg, color: colors.progressText },
   historyDetail: { fontSize: 12, color: colors.muted, marginBottom: 2 },
-  historyHighlight: { fontSize: 14, fontWeight: '600', color: colors.successText, marginVertical: 2 },
+  historyHighlight: { fontSize: 14, fontWeight: '700', color: colors.successText, marginVertical: 2 },
   receiptLink: { marginTop: 6 },
-  receiptLinkText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
-  bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 64, backgroundColor: colors.card, flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, justifyContent: 'space-around', alignItems: 'center' },
+  receiptLinkText: { fontSize: 12, color: colors.surface, fontWeight: '600' },
+
+  adminActionBtn: { backgroundColor: colors.surface, paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 8 },
+  adminRejectBtn: { paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: colors.dangerText },
+  adminRejectText: { color: colors.dangerText, fontSize: 13, fontWeight: '700' },
+
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: colors.paper },
+  filterChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  filterChipActive: { backgroundColor: colors.surface, borderColor: colors.surface },
+  filterChipText: { fontSize: 12, fontWeight: '600', color: colors.ink },
+  filterChipTextActive: { color: colors.paper },
+
+  bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 66, backgroundColor: colors.card, flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, justifyContent: 'space-around', alignItems: 'center' },
   navItem: { alignItems: 'center', justifyContent: 'center', paddingTop: 4 },
-  navIcon: { fontSize: 18 },
+  navIcon: { fontSize: 18, color: colors.muted },
   navText: { fontSize: 11, color: colors.muted, marginTop: 2 },
-  navTextActive: { color: colors.primary, fontWeight: '600' },
-  navActiveMark: { width: 16, height: 2, backgroundColor: colors.primary, borderRadius: 1, marginTop: 4 }
+  navTextActive: { color: colors.surface, fontWeight: '700' },
+  navActiveMark: { width: 16, height: 2, backgroundColor: colors.surface, borderRadius: 1, marginTop: 4 }
 });
