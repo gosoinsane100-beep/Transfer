@@ -27,6 +27,8 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const FEE_PERCENT = 0.05; // 5% platform fee — keep in sync with the frontend's displayed label
+const MIN_TRANSFER_USD = 10; // keep in sync with the frontend's MIN_TRANSFER_USD
+const MAX_TRANSFER_USD = 500; // per transfer; keep in sync with the frontend's MAX_TRANSFER_USD
 const COUNTRY_CURRENCY = { GH: 'GHS', NG: 'NGN' };
 const FALLBACK_RATES = { GHS: 15.5, NGN: 1650 }; // emergency-only fallback if both live sources fail
 
@@ -44,6 +46,13 @@ const ADMIN_INVITE_CODE = process.env.ADMIN_INVITE_CODE;
 function cleanHandle(raw) {
   return (raw || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
 }
+
+// There's no separate staff sign-up screen anymore — staff sign in on the
+// regular form with one of these usernames, which the frontend routes to
+// /api/admin/login instead of /api/login. Block customers from registering
+// with one of these so there's no confusion about which path they're on.
+// (The frontend already blocks this too, but the server never trusts that.)
+const RESERVED_ADMIN_HANDLES = ['admin-ghana', 'admin-usa', 'admin-nigeria'].map(cleanHandle);
 
 // Looks up the real-world rate agents actually get for turning USDT into
 // local cash: Binance's public P2P sell-ad listings first (this is the
@@ -113,6 +122,30 @@ async function requireAdminAuth(req, res, next) {
   }
 }
 
+// Verifies a customer bearer token and attaches req.user. Used anywhere a
+// request needs to be tied to a specific signed-in customer — reading their
+// own history, or filing a transfer under their own name — so nobody can
+// read or write another customer's data just by guessing their email.
+async function requireUserAuth(req, res, next) {
+  try {
+    const authHeader = req.header('authorization') || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+      return res.status(401).json({ success: false, error: 'Sign-in required.' });
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !userData || !userData.user) {
+      return res.status(401).json({ success: false, error: 'Session expired or invalid. Please sign in again.' });
+    }
+
+    req.user = { id: userData.user.id, email: userData.user.email };
+    next();
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 app.get('/api/rate', async (req, res) => {
   const country = req.query.country;
   const currency = COUNTRY_CURRENCY[country];
@@ -154,6 +187,11 @@ app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
     const cleanUsername = cleanHandle(username);
+
+    if (RESERVED_ADMIN_HANDLES.includes(cleanUsername)) {
+      return res.status(400).json({ success: false, error: 'That username is reserved and can\'t be used to create a customer account.' });
+    }
+
     const email = `${cleanUsername}@app.local`;
 
     const { data, error } = await supabase.auth.admin.createUser({
@@ -166,7 +204,18 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ success: false, error: error.message });
     }
 
-    res.json({ success: true, user: { email, username: cleanUsername } });
+    // Sign the brand-new account straight in so the app can log them in
+    // immediately, the same way /api/login does, with a real session token.
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError || !signInData.session) {
+      return res.status(500).json({ success: false, error: 'Account created, but could not start a session. Please sign in.' });
+    }
+
+    res.json({
+      success: true,
+      user: { email, username: cleanUsername },
+      token: signInData.session.access_token
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -187,7 +236,11 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ success: false, error: error.message });
     }
 
-    res.json({ success: true, user: { email, username: cleanUsername } });
+    res.json({
+      success: true,
+      user: { email, username: cleanUsername },
+      token: data.session.access_token
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -270,11 +323,10 @@ app.post('/api/admin/login', async (req, res) => {
   }
 });
 
-app.post('/api/transfer', async (req, res) => {
+app.post('/api/transfer', requireUserAuth, async (req, res) => {
   try {
     const {
       senderName,
-      senderEmail,
       amountUSD,
       paymentMethod,
       recipientCountry,
@@ -287,14 +339,18 @@ app.post('/api/transfer', async (req, res) => {
       receiptUrl
     } = req.body;
 
+    const senderEmail = req.user.email; // from the verified session, never from the request body
     const parsedAmountUSD = parseFloat(amountUSD);
     const currency = COUNTRY_CURRENCY[recipientCountry];
 
-    if (!senderName || !senderEmail || !paymentMethod || !currency || !recipientName || !payoutMethod) {
+    if (!senderName || !paymentMethod || !currency || !recipientName || !payoutMethod) {
       return res.status(400).json({ success: false, error: 'Missing required fields.' });
     }
     if (!Number.isFinite(parsedAmountUSD) || parsedAmountUSD <= 0) {
       return res.status(400).json({ success: false, error: 'Invalid amount.' });
+    }
+    if (parsedAmountUSD < MIN_TRANSFER_USD || parsedAmountUSD > MAX_TRANSFER_USD) {
+      return res.status(400).json({ success: false, error: `Transfers must be between $${MIN_TRANSFER_USD} and $${MAX_TRANSFER_USD}.` });
     }
     if (payoutMethod === 'mobile_money' && (!mobileNetwork || !mobileMoneyNumber)) {
       return res.status(400).json({ success: false, error: 'Mobile network and mobile money number are required.' });
@@ -348,19 +404,16 @@ app.post('/api/transfer', async (req, res) => {
   }
 });
 
-// A user's own app calls this to see only their own transactions — scoped
-// by email, no staff credentials needed, and it never returns anyone else's.
-app.get('/api/transactions/mine', async (req, res) => {
+// A user's own app calls this to see only their own transactions. Scoped
+// by the email on their verified session token, never a client-supplied
+// value, so nobody can read another customer's transfer history — including
+// their bank/mobile money details — just by knowing or guessing an email.
+app.get('/api/transactions/mine', requireUserAuth, async (req, res) => {
   try {
-    const { email } = req.query;
-    if (!email) {
-      return res.status(400).json({ success: false, error: 'email query parameter is required.' });
-    }
-
     const { data, error } = await supabase
       .from('transactions')
       .select('*')
-      .eq('sender_email', email)
+      .eq('sender_email', req.user.email)
       .order('id', { ascending: false });
 
     if (error) {
@@ -372,7 +425,101 @@ app.get('/api/transactions/mine', async (req, res) => {
   }
 });
 
+// Support inbox, customer side. A customer sends a message; it's tied to the
+// email on their verified session, never one they type in. They can only
+// ever list their own messages.
+app.post('/api/support', requireUserAuth, async (req, res) => {
+  try {
+    const message = (req.body.message || '').trim();
+    if (!message) {
+      return res.status(400).json({ success: false, error: 'Message is required.' });
+    }
+    if (message.length > 2000) {
+      return res.status(400).json({ success: false, error: 'Message is too long (2000 characters max).' });
+    }
+
+    const { data, error } = await supabase
+      .from('support_messages')
+      .insert([{ sender_email: req.user.email, message, status: 'open' }])
+      .select();
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    res.json({ success: true, data: data[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/support/mine', requireUserAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('support_messages')
+      .select('*')
+      .eq('sender_email', req.user.email)
+      .order('id', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    res.json({ success: true, messages: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Everything below here requires a signed-in staff account.
+
+// Support inbox, staff side: see every message, and resolve one with an
+// optional reply that the customer sees next to their original message.
+app.get('/api/admin/support', requireAdminAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('support_messages')
+      .select('*')
+      .order('id', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    res.json({ success: true, messages: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.patch('/api/admin/support/:id/resolve', requireAdminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reply = (req.body.reply || '').trim();
+
+    const update = {
+      status: 'resolved',
+      resolved_by: req.admin.displayName,
+      resolved_at: new Date().toISOString()
+    };
+    if (reply) {
+      update.staff_reply = reply;
+    }
+
+    const { data, error } = await supabase
+      .from('support_messages')
+      .update(update)
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    if (!data || data.length === 0) {
+      return res.status(404).json({ success: false, error: 'Message not found.' });
+    }
+    res.json({ success: true, data: data[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 app.get('/api/admin/transactions', requireAdminAuth, async (req, res) => {
   try {
