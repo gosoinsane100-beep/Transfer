@@ -28,6 +28,7 @@ const PAYMENT_HANDLES = {
 // exist to tell the customer up front — keep both sides in sync.
 const MIN_TRANSFER_USD = 10;
 const MAX_TRANSFER_USD = 500;
+const CASH_PICKUP_MAX_USD = 300; // cash pickup has a lower cap; the server enforces the same number
 
 const PAYMENT_METHOD_LABELS = {
   Zelle: 'Zelle',
@@ -39,8 +40,8 @@ const PAYMENT_METHOD_LABELS = {
 const paymentMethodLabel = (code) => PAYMENT_METHOD_LABELS[code] || code;
 
 const COUNTRIES = {
-  GH: { label: 'Ghana', currency: 'GHS', symbol: '₵', networks: ['MTN', 'Telecel'] },
-  NG: { label: 'Nigeria', currency: 'NGN', symbol: '₦', networks: [] }
+  GH: { label: 'Ghana', currency: 'GHS', symbol: '₵', networks: ['MTN', 'Telecel'], cashPickup: true },
+  NG: { label: 'Nigeria', currency: 'NGN', symbol: '₦', networks: [], cashPickup: false }
 };
 
 const STATUS_LABELS = {
@@ -93,9 +94,12 @@ export default function App() {
   const [mobileMoneyNumber, setMobileMoneyNumber] = useState('');
   const [bankName, setBankName] = useState('');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [pickupLocation, setPickupLocation] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [orderSubmitted, setOrderSubmitted] = useState(false);
+  const [submittedPickupCode, setSubmittedPickupCode] = useState('');
 
   // Customer history
   const [transactions, setTransactions] = useState([]);
@@ -112,6 +116,7 @@ export default function App() {
   const [adminFetching, setAdminFetching] = useState(false);
   const [adminFilter, setAdminFilter] = useState('pending');
   const [payoutRefDrafts, setPayoutRefDrafts] = useState({});
+  const [pickupCodeDrafts, setPickupCodeDrafts] = useState({});
   const [actingOnId, setActingOnId] = useState(null);
 
   // Staff support inbox
@@ -165,6 +170,8 @@ export default function App() {
     setMobileMoneyNumber('');
     setBankName('');
     setBankAccountNumber('');
+    setRecipientPhone('');
+    setPickupLocation('');
     fetchExchangeRate(country);
   };
 
@@ -229,6 +236,7 @@ export default function App() {
     setUsername('');
     setAuthPassword('');
     setOrderSubmitted(false);
+    setSubmittedPickupCode('');
     setMyMessages([]);
     setSupportMessage('');
   };
@@ -412,10 +420,15 @@ export default function App() {
     const missingRecipientField =
       !recipientName ||
       (payoutMethod === 'mobile_money' && !mobileMoneyNumber) ||
-      (payoutMethod === 'bank_transfer' && (!bankName || !bankAccountNumber));
+      (payoutMethod === 'bank_transfer' && (!bankName || !bankAccountNumber)) ||
+      (payoutMethod === 'cash_pickup' && (!recipientPhone || !pickupLocation));
 
     if (!senderName || missingRecipientField) {
       alert("Fill in your name and the recipient's details before submitting.");
+      return;
+    }
+    if (payoutMethod === 'cash_pickup' && numUSD > CASH_PICKUP_MAX_USD) {
+      alert(`Cash pickup is limited to $${CASH_PICKUP_MAX_USD} per transfer.`);
       return;
     }
     if (!Number.isFinite(numUSD) || numUSD < MIN_TRANSFER_USD || numUSD > MAX_TRANSFER_USD) {
@@ -439,11 +452,14 @@ export default function App() {
           mobileMoneyNumber: payoutMethod === 'mobile_money' ? mobileMoneyNumber : undefined,
           bankName: payoutMethod === 'bank_transfer' ? bankName : undefined,
           bankAccountNumber: payoutMethod === 'bank_transfer' ? bankAccountNumber : undefined,
+          recipientPhone: payoutMethod === 'cash_pickup' ? recipientPhone : undefined,
+          pickupLocation: payoutMethod === 'cash_pickup' ? pickupLocation : undefined,
           receiptUrl
         })
       });
       const data = await response.json();
       if (data.success) {
+        setSubmittedPickupCode(data.data && data.data[0] && data.data[0].pickup_code ? data.data[0].pickup_code : '');
         setOrderSubmitted(true);
         fetchUserHistory(userToken);
       } else {
@@ -463,12 +479,20 @@ export default function App() {
       alert('Enter a payout reference before marking this as sent.');
       return;
     }
+    if (next === 'sent' && item.payout_method === 'cash_pickup' && !(pickupCodeDrafts[item.id] || '').trim()) {
+      alert('Enter the pickup code the recipient gives you before handing over any cash.');
+      return;
+    }
     setActingOnId(item.id);
     try {
       const response = await fetch(`${BACKEND_URL}/api/admin/transactions/${item.id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ status: next, payoutReference: payoutRefDrafts[item.id] })
+        body: JSON.stringify({
+          status: next,
+          payoutReference: payoutRefDrafts[item.id],
+          pickupCode: item.payout_method === 'cash_pickup' ? pickupCodeDrafts[item.id] : undefined
+        })
       });
       const data = await response.json();
       if (data.success) {
@@ -510,6 +534,9 @@ export default function App() {
     }
     if (item.payout_method === 'bank_transfer') {
       return `${item.bank_name || ''} · ${item.bank_account_number || ''}`;
+    }
+    if (item.payout_method === 'cash_pickup') {
+      return `Cash pickup · ${item.pickup_location || ''} · ${item.recipient_phone || ''}`;
     }
     return '—';
   };
@@ -627,10 +654,21 @@ export default function App() {
                   </TouchableOpacity>
                 ) : null}
 
+                {item.status === 'payment_received' && item.payout_method === 'cash_pickup' && (
+                  <TextInput
+                    style={styles.inputMargin}
+                    placeholder="Pickup code the recipient tells you (required)"
+                    keyboardType="numeric"
+                    value={pickupCodeDrafts[item.id] || ''}
+                    onChangeText={(val) => setPickupCodeDrafts((prev) => ({ ...prev, [item.id]: val }))}
+                  />
+                )}
                 {item.status === 'payment_received' && (
                   <TextInput
                     style={styles.inputMargin}
-                    placeholder="Payout reference (required to mark sent)"
+                    placeholder={item.payout_method === 'cash_pickup'
+                      ? 'Handed over by (your name) + ID checked, e.g. Ghana Card (required)'
+                      : 'Payout reference (required to mark sent)'}
                     value={payoutRefDrafts[item.id] || ''}
                     onChangeText={(val) => setPayoutRefDrafts((prev) => ({ ...prev, [item.id]: val }))}
                   />
@@ -764,9 +802,18 @@ export default function App() {
               <View style={styles.successContainer}>
                 <Text style={styles.successTitle}>Transfer submitted</Text>
                 <Text style={styles.successText}>
-                  Send ${numUSD} via {paymentMethodLabel(paymentMethod)}. Once it's confirmed, {countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'} will go out to {recipientName}.
+                  Send ${numUSD} via {paymentMethodLabel(paymentMethod)}. Once it's confirmed, {countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'} will {payoutMethod === 'cash_pickup' ? 'be ready for cash pickup by' : 'go out to'} {recipientName}.
                 </Text>
-                <TouchableOpacity style={styles.button} onPress={() => { setOrderSubmitted(false); setActiveTab('history'); }}>
+                {submittedPickupCode ? (
+                  <View style={styles.pickupCodeBox}>
+                    <Text style={styles.pickupCodeLabel}>Pickup code</Text>
+                    <Text style={styles.pickupCodeValue}>{submittedPickupCode}</Text>
+                    <Text style={styles.pickupCodeHint}>
+                      Give this code to {recipientName}. To collect the cash they must tell our team this code and show a valid ID. Don't share it with anyone else. You can find it again in History.
+                    </Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity style={styles.button} onPress={() => { setOrderSubmitted(false); setSubmittedPickupCode(''); setActiveTab('history'); }}>
                   <Text style={styles.buttonText}>View in history</Text>
                 </TouchableOpacity>
               </View>
@@ -834,6 +881,11 @@ export default function App() {
                   <TouchableOpacity style={[styles.railButton, payoutMethod === 'bank_transfer' && styles.railButtonActive]} onPress={() => setPayoutMethod('bank_transfer')}>
                     <Text style={[styles.railText, payoutMethod === 'bank_transfer' && styles.railTextActive]}>Bank transfer</Text>
                   </TouchableOpacity>
+                  {countryInfo.cashPickup && (
+                    <TouchableOpacity style={[styles.railButton, payoutMethod === 'cash_pickup' && styles.railButtonActive]} onPress={() => setPayoutMethod('cash_pickup')}>
+                      <Text style={[styles.railText, payoutMethod === 'cash_pickup' && styles.railTextActive]}>Cash pickup</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 {payoutMethod === 'mobile_money' && countryInfo.networks.length > 0 && (
@@ -853,6 +905,18 @@ export default function App() {
                   <>
                     <TextInput style={styles.inputMargin} placeholder="Bank name" value={bankName} onChangeText={setBankName} />
                     <TextInput style={styles.inputMargin} placeholder="Account number" keyboardType="numeric" value={bankAccountNumber} onChangeText={setBankAccountNumber} />
+                  </>
+                )}
+
+                {payoutMethod === 'cash_pickup' && (
+                  <>
+                    <TextInput style={styles.inputMargin} placeholder="Recipient phone number" keyboardType="phone-pad" value={recipientPhone} onChangeText={setRecipientPhone} />
+                    <TextInput style={styles.inputMargin} placeholder="Pickup location (city / area)" value={pickupLocation} onChangeText={setPickupLocation} />
+                    <View style={styles.infoBox}>
+                      <Text style={styles.infoText}>A CediPay team member hands your recipient the cash in cedis.</Text>
+                      <Text style={styles.infoText}>After you submit, you'll get a pickup code to give them. They need the code and a valid ID to collect.</Text>
+                      <Text style={styles.infoText}>Cash pickup limit: ${CASH_PICKUP_MAX_USD} per transfer.</Text>
+                    </View>
                   </>
                 )}
 
@@ -885,6 +949,12 @@ export default function App() {
                     Payout: {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? Number(item.amount_local).toLocaleString() : '—'} {item.local_currency}
                   </Text>
                   <Text style={styles.historyDetail}>To: {item.recipient_name} — {recipientLine(item)}</Text>
+                  {item.payout_method === 'cash_pickup' && item.pickup_code && item.status !== 'completed' && item.status !== 'rejected' ? (
+                    <View style={styles.pickupCodeBox}>
+                      <Text style={styles.pickupCodeLabel}>Pickup code (give it to {item.recipient_name})</Text>
+                      <Text style={styles.pickupCodeValue}>{item.pickup_code}</Text>
+                    </View>
+                  ) : null}
 
                   {item.receipt_url ? (
                     <TouchableOpacity onPress={() => Linking.openURL(item.receipt_url)} style={styles.receiptLink}>
@@ -1045,6 +1115,10 @@ const styles = StyleSheet.create({
   inputMargin: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 10, fontSize: 14, marginBottom: 10, backgroundColor: colors.card, color: colors.ink },
   infoBox: { backgroundColor: colors.card, padding: 10, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
   infoText: { fontSize: 13, color: colors.muted, marginVertical: 2 },
+  pickupCodeBox: { backgroundColor: colors.goldSoft, borderRadius: 12, padding: 14, marginVertical: 12, alignItems: 'center' },
+  pickupCodeLabel: { fontSize: 12, fontWeight: '700', color: colors.pendingText, textTransform: 'uppercase', letterSpacing: 0.6 },
+  pickupCodeValue: { fontSize: 34, fontWeight: '800', color: colors.ink, letterSpacing: 6, marginVertical: 6 },
+  pickupCodeHint: { fontSize: 13, color: colors.pendingText, textAlign: 'center' },
   resultContainer: { alignItems: 'center', marginVertical: 12, padding: 18, backgroundColor: colors.surface, borderRadius: 14 },
   resultLabel: { fontSize: 12, color: 'rgba(250,251,247,0.7)' },
   resultValue: { fontSize: 28, fontWeight: '800', color: colors.gold, marginTop: 4, letterSpacing: -0.5 },
