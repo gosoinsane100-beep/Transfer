@@ -24,7 +24,22 @@ const upload = multer({ storage: multer.memoryStorage() });
 const SUPABASE_URL = process.env.SUPABASE_URL ? process.env.SUPABASE_URL : 'https://hsnaqddekfddbpamajpw.supabase.co';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const clientOptions = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
+
+// The one shared client for all database work. It uses the service_role key,
+// which bypasses row-level security — but ONLY as long as nobody signs a user
+// in on it. Calling signInWithPassword on a client makes that client start
+// acting as that user from then on (and row-level security suddenly applies
+// to it), which is what broke support messages and the staff check. So never
+// call signInWithPassword on this client; use signInWithPassword() below.
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, clientOptions);
+
+// Signs a user in on a throwaway client that is discarded straight away, so
+// the shared client above is never affected.
+function signInWithPassword(email, password) {
+  const throwaway = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, clientOptions);
+  return throwaway.auth.signInWithPassword({ email, password });
+}
 
 const FEE_PERCENT = 0.05; // 5% platform fee — keep in sync with the frontend's displayed label
 const MIN_TRANSFER_USD = 10; // keep in sync with the frontend's MIN_TRANSFER_USD
@@ -206,7 +221,7 @@ app.post('/api/register', async (req, res) => {
 
     // Sign the brand-new account straight in so the app can log them in
     // immediately, the same way /api/login does, with a real session token.
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: signInData, error: signInError } = await signInWithPassword(email, password);
     if (signInError || !signInData.session) {
       return res.status(500).json({ success: false, error: 'Account created, but could not start a session. Please sign in.' });
     }
@@ -227,10 +242,7 @@ app.post('/api/login', async (req, res) => {
     const cleanUsername = cleanHandle(username);
     const email = `${cleanUsername}@app.local`;
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    const { data, error } = await signInWithPassword(email, password);
 
     if (error) {
       return res.status(400).json({ success: false, error: error.message });
@@ -298,7 +310,7 @@ app.post('/api/admin/login', async (req, res) => {
     const cleanUsername = cleanHandle(username);
     const email = `${cleanUsername}@${ADMIN_EMAIL_DOMAIN}`;
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await signInWithPassword(email, password);
     if (error) {
       return res.status(400).json({ success: false, error: 'Incorrect staff username or password.' });
     }
