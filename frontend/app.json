@@ -1,19 +1,29 @@
 {
   "expo": {
     "name": "CediPay",
+    "icon": "./assets/icon.png",
     "extra": {
       "eas": {
         "projectId": "6aa0effe-f8df-4fb6-b64a-04f75e32382c"
       }
     },
     "android": {
-      "package": "com.marktwain.currencyappfrontend"
+      "package": "com.marktwain.currencyappfrontend",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F4C3A"
+      }
     },
     "ios": {
       "bundleIdentifier": "com.marktwain.currencyappfrontend"
     },
     "splash": {
-      "backgroundColor": "#111C2B"
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F4C3A"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     }
   }
 }

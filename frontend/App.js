@@ -3,12 +3,40 @@ import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, Scro
 
 const BACKEND_URL = 'https://transfer-app-df1j.onrender.com';
 
+// Matches the backend's cleanHandle exactly, so "admin-ghana", "Admin Ghana",
+// etc. all resolve the same way on both sides.
+const cleanHandle = (raw) => (raw || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+
+// Typing one of these usernames into the regular sign-in form (not sign-up)
+// routes to the staff login instead of the customer one — this is the only
+// way into the staff dashboard now, there's no separate staff screen.
+const RESERVED_ADMIN_HANDLES = ['admin-ghana', 'admin-usa', 'admin-nigeria'].map(cleanHandle);
+
 const PAYMENT_HANDLES = {
   Zelle: 'zelle@yourdomain.com / +1 (555) 019-2831',
   PayPal_FF: 'paypal.me/yourbusiness',
   BinancePay: 'Binance Pay ID: 849201847',
-  BybitPay: 'Bybit UID: 92837410'
+  BybitPay: 'Bybit UID: 92837410',
+  // USDT on the Solana network specifically — sending USDT on a different
+  // network (Ethereum, Tron, etc.) to this address will not arrive.
+  USDT_SOL: 'USDT (Solana network only): GYBEPGBCXsc8Sb1AudHffnVevdfKB38d8RprRtjiC6h3'
 };
+
+// Human-readable labels for the raw PAYMENT_HANDLES keys, used everywhere a
+// payment method is shown to someone instead of the raw code.
+// Per-transfer limits. The server enforces the same numbers, so these only
+// exist to tell the customer up front — keep both sides in sync.
+const MIN_TRANSFER_USD = 10;
+const MAX_TRANSFER_USD = 500;
+
+const PAYMENT_METHOD_LABELS = {
+  Zelle: 'Zelle',
+  PayPal_FF: 'PayPal (F&F)',
+  BinancePay: 'Binance Pay',
+  BybitPay: 'Bybit Pay',
+  USDT_SOL: 'USDT (Solana)'
+};
+const paymentMethodLabel = (code) => PAYMENT_METHOD_LABELS[code] || code;
 
 const COUNTRIES = {
   GH: { label: 'Ghana', currency: 'GHS', symbol: '₵', networks: ['MTN', 'Telecel'] },
@@ -31,24 +59,18 @@ const ADVANCE_LABEL = {
 };
 
 export default function App() {
-  // which sign-in track we're on before anyone is authenticated
-  const [mode, setMode] = useState('customer'); // 'customer' | 'staff'
-
   // Customer auth
   const [user, setUser] = useState(null);
+  const [userToken, setUserToken] = useState(null);
   const [isSignUp, setIsSignUp] = useState(false);
   const [username, setUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Staff auth
+  // Staff session (reached by signing in on the regular screen with one of
+  // the reserved regional admin usernames — see RESERVED_ADMIN_HANDLES)
   const [admin, setAdmin] = useState(null);
   const [adminToken, setAdminToken] = useState(null);
-  const [isStaffSignUp, setIsStaffSignUp] = useState(false);
-  const [staffUsername, setStaffUsername] = useState('');
-  const [staffPassword, setStaffPassword] = useState('');
-  const [staffInviteCode, setStaffInviteCode] = useState('');
-  const [staffAuthLoading, setStaffAuthLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState('home');
 
@@ -79,6 +101,12 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [fetchingHistory, setFetchingHistory] = useState(false);
 
+  // Customer support
+  const [supportMessage, setSupportMessage] = useState('');
+  const [submittingSupport, setSubmittingSupport] = useState(false);
+  const [myMessages, setMyMessages] = useState([]);
+  const [fetchingMyMessages, setFetchingMyMessages] = useState(false);
+
   // Staff dashboard
   const [adminTransactions, setAdminTransactions] = useState([]);
   const [adminFetching, setAdminFetching] = useState(false);
@@ -86,13 +114,21 @@ export default function App() {
   const [payoutRefDrafts, setPayoutRefDrafts] = useState({});
   const [actingOnId, setActingOnId] = useState(null);
 
+  // Staff support inbox
+  const [adminView, setAdminView] = useState('transfers'); // 'transfers' | 'support'
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [supportFetching, setSupportFetching] = useState(false);
+  const [supportReplyDrafts, setSupportReplyDrafts] = useState({});
+  const [resolvingId, setResolvingId] = useState(null);
+
   useEffect(() => {
-    if (user) {
+    if (user && userToken) {
       fetchExchangeRate(recipientCountry);
-      fetchUserHistory(user.email);
+      fetchUserHistory(userToken);
+      fetchMyMessages(userToken);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, userToken]);
 
   useEffect(() => {
     if (!user) {
@@ -104,6 +140,7 @@ export default function App() {
   useEffect(() => {
     if (admin && adminToken) {
       fetchAdminTransactions();
+      fetchSupportMessages();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, adminToken]);
@@ -136,9 +173,37 @@ export default function App() {
       alert('Enter both a username and a password.');
       return;
     }
+
+    const cleanUsername = cleanHandle(username);
+    const isReservedAdminHandle = RESERVED_ADMIN_HANDLES.includes(cleanUsername);
+
+    if (isSignUp && isReservedAdminHandle) {
+      alert('That username is reserved for staff sign-in and can\'t be used to create a customer account.');
+      return;
+    }
+
     setAuthLoading(true);
-    const endpoint = isSignUp ? '/api/register' : '/api/login';
     try {
+      // A regional admin username (admin-ghana / admin-usa / admin-nigeria)
+      // on the sign-in form routes to the staff login instead of the
+      // customer one — same screen, no separate staff entry point.
+      if (!isSignUp && isReservedAdminHandle) {
+        const response = await fetch(`${BACKEND_URL}/api/admin/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password: authPassword })
+        });
+        const data = await response.json();
+        if (data.success) {
+          setAdmin(data.admin);
+          setAdminToken(data.token);
+        } else {
+          alert(data.error || 'Could not sign you in.');
+        }
+        return;
+      }
+
+      const endpoint = isSignUp ? '/api/register' : '/api/login';
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,6 +212,7 @@ export default function App() {
       const data = await response.json();
       if (data.success) {
         setUser(data.user);
+        setUserToken(data.token);
       } else {
         alert(data.error || 'Could not sign you in.');
       }
@@ -159,54 +225,22 @@ export default function App() {
 
   const handleLogout = () => {
     setUser(null);
+    setUserToken(null);
     setUsername('');
     setAuthPassword('');
     setOrderSubmitted(false);
-  };
-
-  const handleStaffAuth = async () => {
-    if (!staffUsername || !staffPassword || (isStaffSignUp && !staffInviteCode)) {
-      alert('Fill in every field.');
-      return;
-    }
-    setStaffAuthLoading(true);
-    const endpoint = isStaffSignUp ? '/api/admin/register' : '/api/admin/login';
-    const body = isStaffSignUp
-      ? { username: staffUsername, password: staffPassword, inviteCode: staffInviteCode }
-      : { username: staffUsername, password: staffPassword };
-    try {
-      const response = await fetch(`${BACKEND_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await response.json();
-      if (!data.success) {
-        alert(data.error || 'Could not sign you in.');
-        return;
-      }
-      if (isStaffSignUp) {
-        alert('Staff account created. Sign in below.');
-        setIsStaffSignUp(false);
-        setStaffPassword('');
-        setStaffInviteCode('');
-        return;
-      }
-      setAdmin(data.admin);
-      setAdminToken(data.token);
-    } catch (err) {
-      alert('Could not reach the server.');
-    } finally {
-      setStaffAuthLoading(false);
-    }
+    setMyMessages([]);
+    setSupportMessage('');
   };
 
   const handleStaffLogout = () => {
     setAdmin(null);
     setAdminToken(null);
-    setStaffUsername('');
-    setStaffPassword('');
+    setUsername('');
+    setAuthPassword('');
     setAdminTransactions([]);
+    setSupportMessages([]);
+    setAdminView('transfers');
   };
 
   const fetchExchangeRate = async (country) => {
@@ -222,10 +256,12 @@ export default function App() {
     }
   };
 
-  const fetchUserHistory = async (userEmail) => {
+  const fetchUserHistory = async (token) => {
     try {
       setFetchingHistory(true);
-      const response = await fetch(`${BACKEND_URL}/api/transactions/mine?email=${encodeURIComponent(userEmail)}`);
+      const response = await fetch(`${BACKEND_URL}/api/transactions/mine`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = await response.json();
       if (data.success) setTransactions(data.transactions);
     } catch (error) {
@@ -251,6 +287,87 @@ export default function App() {
       // leave list as-is
     } finally {
       setAdminFetching(false);
+    }
+  };
+
+  const fetchMyMessages = async (token) => {
+    try {
+      setFetchingMyMessages(true);
+      const response = await fetch(`${BACKEND_URL}/api/support/mine`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) setMyMessages(data.messages);
+    } catch (error) {
+      // leave list as-is
+    } finally {
+      setFetchingMyMessages(false);
+    }
+  };
+
+  const handleSubmitSupport = async () => {
+    if (!supportMessage.trim()) {
+      alert('Write a message first.');
+      return;
+    }
+    setSubmittingSupport(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/support`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+        body: JSON.stringify({ message: supportMessage })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSupportMessage('');
+        fetchMyMessages(userToken);
+      } else {
+        alert(data.error || 'Could not send that message.');
+      }
+    } catch (err) {
+      alert('Could not reach the server.');
+    } finally {
+      setSubmittingSupport(false);
+    }
+  };
+
+  const fetchSupportMessages = async () => {
+    try {
+      setSupportFetching(true);
+      const response = await fetch(`${BACKEND_URL}/api/admin/support`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSupportMessages(data.messages);
+      } else if (response.status === 401 || response.status === 403) {
+        handleStaffLogout();
+      }
+    } catch (error) {
+      // leave list as-is
+    } finally {
+      setSupportFetching(false);
+    }
+  };
+
+  const handleResolveSupport = async (item) => {
+    setResolvingId(item.id);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/admin/support/${item.id}/resolve`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ reply: supportReplyDrafts[item.id] || '' })
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchSupportMessages();
+      } else {
+        alert(data.error || 'Could not update that message.');
+      }
+    } catch (err) {
+      alert('Could not reach the server.');
+    } finally {
+      setResolvingId(null);
     }
   };
 
@@ -301,15 +418,18 @@ export default function App() {
       alert("Fill in your name and the recipient's details before submitting.");
       return;
     }
+    if (!Number.isFinite(numUSD) || numUSD < MIN_TRANSFER_USD || numUSD > MAX_TRANSFER_USD) {
+      alert(`Transfers must be between $${MIN_TRANSFER_USD} and $${MAX_TRANSFER_USD}.`);
+      return;
+    }
 
     setSubmitting(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/transfer`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
         body: JSON.stringify({
           senderName,
-          senderEmail: user.email,
           amountUSD: numUSD,
           paymentMethod,
           recipientCountry,
@@ -325,7 +445,7 @@ export default function App() {
       const data = await response.json();
       if (data.success) {
         setOrderSubmitted(true);
-        fetchUserHistory(user.email);
+        fetchUserHistory(userToken);
       } else {
         alert('Could not submit that transfer: ' + data.error);
       }
@@ -394,6 +514,8 @@ export default function App() {
     return '—';
   };
 
+  const openSupportCount = supportMessages.filter((m) => m.status === 'open').length;
+
   const adminFilteredTransactions = adminTransactions.filter((item) => {
     if (adminFilter === 'all') return true;
     if (adminFilter === 'in_progress') return item.status === 'payment_received' || item.status === 'sent';
@@ -401,50 +523,8 @@ export default function App() {
   });
 
   // ---------------------------------------------------------------
-  // Staff sign-in / sign-up
-  // ---------------------------------------------------------------
-  if (!user && !admin && mode === 'staff') {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.topBarDark}>
-          <Text style={styles.brandTitle}>CediPay staff</Text>
-        </View>
-        <ScrollView contentContainerStyle={styles.scrollCenter}>
-          <View style={styles.authCard}>
-            <Text style={styles.title}>{isStaffSignUp ? 'Create staff account' : 'Staff sign in'}</Text>
-
-            <Text style={styles.label}>Staff username</Text>
-            <TextInput style={styles.inputMargin} autoCapitalize="none" value={staffUsername} onChangeText={setStaffUsername} placeholder="e.g. kwame" />
-
-            <Text style={styles.label}>Password</Text>
-            <TextInput style={styles.inputMargin} secureTextEntry value={staffPassword} onChangeText={setStaffPassword} placeholder="••••••••" />
-
-            {isStaffSignUp && (
-              <>
-                <Text style={styles.label}>Invite code</Text>
-                <TextInput style={styles.inputMargin} secureTextEntry value={staffInviteCode} onChangeText={setStaffInviteCode} placeholder="Given to you by the owner" />
-              </>
-            )}
-
-            <TouchableOpacity style={styles.button} onPress={handleStaffAuth} disabled={staffAuthLoading}>
-              {staffAuthLoading ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>{isStaffSignUp ? 'Create account' : 'Sign in'}</Text>}
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setIsStaffSignUp(!isStaffSignUp)}>
-              <Text style={styles.switchAuthText}>{isStaffSignUp ? 'Already have a staff account? Sign in' : 'Have an invite code? Create a staff account'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setMode('customer')}>
-              <Text style={styles.backLinkText}>Back to customer sign in</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
-  // ---------------------------------------------------------------
-  // Staff dashboard
+  // Staff dashboard — reached by signing in above with a reserved
+  // regional admin username (handleAuth routes it to /api/admin/login)
   // ---------------------------------------------------------------
   if (admin) {
     return (
@@ -460,15 +540,68 @@ export default function App() {
         </View>
 
         <View style={styles.filterRow}>
-          {['pending', 'in_progress', 'completed', 'rejected', 'all'].map((f) => (
-            <TouchableOpacity key={f} style={[styles.filterChip, adminFilter === f && styles.filterChipActive]} onPress={() => setAdminFilter(f)}>
-              <Text style={[styles.filterChipText, adminFilter === f && styles.filterChipTextActive]}>
-                {f === 'in_progress' ? 'In progress' : f.charAt(0).toUpperCase() + f.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity style={[styles.filterChip, adminView === 'transfers' && styles.filterChipActive]} onPress={() => setAdminView('transfers')}>
+            <Text style={[styles.filterChipText, adminView === 'transfers' && styles.filterChipTextActive]}>Transfers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.filterChip, adminView === 'support' && styles.filterChipActive]} onPress={() => setAdminView('support')}>
+            <Text style={[styles.filterChipText, adminView === 'support' && styles.filterChipTextActive]}>
+              Support{openSupportCount > 0 ? ` (${openSupportCount})` : ''}
+            </Text>
+          </TouchableOpacity>
         </View>
 
+        {adminView === 'transfers' && (
+          <View style={styles.filterRow}>
+            {['pending', 'in_progress', 'completed', 'rejected', 'all'].map((f) => (
+              <TouchableOpacity key={f} style={[styles.filterChip, adminFilter === f && styles.filterChipActive]} onPress={() => setAdminFilter(f)}>
+                <Text style={[styles.filterChipText, adminFilter === f && styles.filterChipTextActive]}>
+                  {f === 'in_progress' ? 'In progress' : f.charAt(0).toUpperCase() + f.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {adminView === 'support' && (
+          <ScrollView contentContainerStyle={styles.scroll}>
+            {supportFetching ? (
+              <ActivityIndicator size="large" color="#0F4C3A" style={{ marginVertical: 20 }} />
+            ) : supportMessages.length === 0 ? (
+              <Text style={styles.emptyText}>No support messages.</Text>
+            ) : (
+              supportMessages.map((item) => (
+                <View key={item.id} style={styles.historyCard}>
+                  <View style={styles.historyHeader}>
+                    <Text style={styles.historyTitle}>Message #{item.id}</Text>
+                    <Text style={[styles.badge, item.status === 'resolved' ? styles.badgeSuccess : styles.badgePending]}>
+                      {item.status === 'resolved' ? 'Resolved' : 'Open'}
+                    </Text>
+                  </View>
+                  <Text style={styles.historyDetail}>{item.sender_email}</Text>
+                  <Text style={styles.messageBody}>{item.message}</Text>
+                  {item.staff_reply ? <Text style={styles.historyDetail}>Reply ({item.resolved_by}): {item.staff_reply}</Text> : null}
+
+                  {item.status === 'open' && (
+                    <>
+                      <TextInput
+                        style={styles.inputMargin}
+                        placeholder="Reply to the customer (optional)"
+                        multiline
+                        value={supportReplyDrafts[item.id] || ''}
+                        onChangeText={(val) => setSupportReplyDrafts((prev) => ({ ...prev, [item.id]: val }))}
+                      />
+                      <TouchableOpacity style={styles.adminActionBtn} onPress={() => handleResolveSupport(item)} disabled={resolvingId === item.id}>
+                        {resolvingId === item.id ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Mark resolved</Text>}
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              ))
+            )}
+          </ScrollView>
+        )}
+
+        {adminView === 'transfers' && (
         <ScrollView contentContainerStyle={styles.scroll}>
           {adminFetching ? (
             <ActivityIndicator size="large" color="#0F4C3A" style={{ marginVertical: 20 }} />
@@ -482,7 +615,7 @@ export default function App() {
                   <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                 </View>
                 <Text style={styles.historyDetail}>{item.sender_name} · {item.sender_email}</Text>
-                <Text style={styles.historyDetail}>${item.amount_usd} via {item.payment_method}</Text>
+                <Text style={styles.historyDetail}>${item.amount_usd} via {paymentMethodLabel(item.payment_method)}</Text>
                 <Text style={styles.historyHighlight}>
                   To {item.recipient_name} — {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? Number(item.amount_local).toLocaleString() : '—'} {item.local_currency}
                 </Text>
@@ -517,6 +650,7 @@ export default function App() {
             ))
           )}
         </ScrollView>
+        )}
       </SafeAreaView>
     );
   }
@@ -547,10 +681,6 @@ export default function App() {
 
             <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setIsSignUp(!isSignUp)}>
               <Text style={styles.switchAuthText}>{isSignUp ? 'Already have an account? Sign in' : 'New here? Create an account'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.switchAuthBtn} onPress={() => setMode('staff')}>
-              <Text style={styles.backLinkText}>Staff sign in</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -616,7 +746,7 @@ export default function App() {
                 <View key={item.id} style={styles.miniCard}>
                   <View>
                     <Text style={styles.miniCardTitle}>To {item.recipient_name}</Text>
-                    <Text style={styles.miniCardSub}>${item.amount_usd} USD ({item.payment_method})</Text>
+                    <Text style={styles.miniCardSub}>${item.amount_usd} USD ({paymentMethodLabel(item.payment_method)})</Text>
                   </View>
                   <Text style={[styles.miniStatus, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                 </View>
@@ -634,7 +764,7 @@ export default function App() {
               <View style={styles.successContainer}>
                 <Text style={styles.successTitle}>Transfer submitted</Text>
                 <Text style={styles.successText}>
-                  Send ${numUSD} via {paymentMethod}. Once it's confirmed, {countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'} will go out to {recipientName}.
+                  Send ${numUSD} via {paymentMethodLabel(paymentMethod)}. Once it's confirmed, {countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'} will go out to {recipientName}.
                 </Text>
                 <TouchableOpacity style={styles.button} onPress={() => { setOrderSubmitted(false); setActiveTab('history'); }}>
                   <Text style={styles.buttonText}>View in history</Text>
@@ -657,6 +787,7 @@ export default function App() {
                 </View>
 
                 <View style={styles.infoBox}>
+                  <Text style={styles.infoText}>Limits: ${MIN_TRANSFER_USD} – ${MAX_TRANSFER_USD} per transfer</Text>
                   <Text style={styles.infoText}>Fee (5%): ${feeUSD.toFixed(2)}</Text>
                   <Text style={styles.infoText}>Rate: $1 = {loading || rate === null ? '···' : rate.toLocaleString(undefined, { maximumFractionDigits: 2 })} {countryInfo.currency}</Text>
                 </View>
@@ -671,9 +802,9 @@ export default function App() {
 
                 <Text style={styles.sectionHeader}>How you're paying</Text>
                 <View style={styles.railRow}>
-                  {['Zelle', 'PayPal_FF', 'BinancePay', 'BybitPay'].map((method) => (
+                  {['Zelle', 'PayPal_FF', 'BinancePay', 'BybitPay', 'USDT_SOL'].map((method) => (
                     <TouchableOpacity key={method} style={[styles.railButton, paymentMethod === method && styles.railButtonActive]} onPress={() => setPaymentMethod(method)}>
-                      <Text style={[styles.railText, paymentMethod === method && styles.railTextActive]}>{method}</Text>
+                      <Text style={[styles.railText, paymentMethod === method && styles.railTextActive]}>{paymentMethodLabel(method)}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -749,7 +880,7 @@ export default function App() {
                     <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
                     <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                   </View>
-                  <Text style={styles.historyDetail}>Paid: ${item.amount_usd} USD via {item.payment_method}</Text>
+                  <Text style={styles.historyDetail}>Paid: ${item.amount_usd} USD via {paymentMethodLabel(item.payment_method)}</Text>
                   <Text style={styles.historyHighlight}>
                     Payout: {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? Number(item.amount_local).toLocaleString() : '—'} {item.local_currency}
                   </Text>
@@ -760,6 +891,45 @@ export default function App() {
                       <Text style={styles.receiptLinkText}>View attached receipt</Text>
                     </TouchableOpacity>
                   ) : null}
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {activeTab === 'support' && (
+          <View style={styles.screenContainer}>
+            <Text style={styles.title}>Support</Text>
+            <Text style={styles.subtitle}>Ask us anything about a transfer — our team will reply here</Text>
+
+            <TextInput
+              style={[styles.inputMargin, styles.messageInput]}
+              placeholder="Write your message (include the transfer number if it's about a specific one)"
+              multiline
+              maxLength={2000}
+              value={supportMessage}
+              onChangeText={setSupportMessage}
+            />
+            <TouchableOpacity style={styles.button} onPress={handleSubmitSupport} disabled={submittingSupport}>
+              {submittingSupport ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Send message</Text>}
+            </TouchableOpacity>
+
+            <Text style={styles.sectionHeader}>Your messages</Text>
+            {fetchingMyMessages ? (
+              <ActivityIndicator size="large" color="#0F4C3A" style={{ marginVertical: 20 }} />
+            ) : myMessages.length === 0 ? (
+              <Text style={styles.emptyText}>No messages yet.</Text>
+            ) : (
+              myMessages.map((item) => (
+                <View key={item.id} style={styles.historyCard}>
+                  <View style={styles.historyHeader}>
+                    <Text style={styles.historyTitle}>Message #{item.id}</Text>
+                    <Text style={[styles.badge, item.status === 'resolved' ? styles.badgeSuccess : styles.badgePending]}>
+                      {item.status === 'resolved' ? 'Resolved' : 'Open'}
+                    </Text>
+                  </View>
+                  <Text style={styles.messageBody}>{item.message}</Text>
+                  {item.staff_reply ? <Text style={styles.historyHighlight}>Reply: {item.staff_reply}</Text> : null}
                 </View>
               ))
             )}
@@ -784,6 +954,12 @@ export default function App() {
           <Text style={styles.navIcon}>☰</Text>
           <Text style={[styles.navText, activeTab === 'history' && styles.navTextActive]}>History</Text>
           {activeTab === 'history' ? <View style={styles.navActiveMark} /> : null}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('support')}>
+          <Text style={styles.navIcon}>✉</Text>
+          <Text style={[styles.navText, activeTab === 'support' && styles.navTextActive]}>Support</Text>
+          {activeTab === 'support' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -900,6 +1076,8 @@ const styles = StyleSheet.create({
   badgeProgress: { backgroundColor: colors.progressBg, color: colors.progressText },
   historyDetail: { fontSize: 12, color: colors.muted, marginBottom: 2 },
   historyHighlight: { fontSize: 14, fontWeight: '700', color: colors.successText, marginVertical: 2 },
+  messageBody: { fontSize: 14, color: colors.ink, lineHeight: 20, marginVertical: 4 },
+  messageInput: { minHeight: 110, textAlignVertical: 'top' },
   receiptLink: { marginTop: 6 },
   receiptLinkText: { fontSize: 12, color: colors.surface, fontWeight: '600' },
 
