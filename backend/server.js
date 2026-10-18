@@ -3,6 +3,7 @@ import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import multer from 'multer';
+import { randomInt } from 'crypto';
 
 dotenv.config();
 
@@ -45,6 +46,22 @@ const FEE_PERCENT = 0.05; // 5% platform fee — keep in sync with the frontend'
 const MIN_TRANSFER_USD = 10; // keep in sync with the frontend's MIN_TRANSFER_USD
 const MAX_TRANSFER_USD = 500; // per transfer; keep in sync with the frontend's MAX_TRANSFER_USD
 const COUNTRY_CURRENCY = { GH: 'GHS', NG: 'NGN' };
+
+// Cash pickup: a CediPay employee hands the recipient cash. Ghana only for
+// now, with its own lower per-transfer cap (keep CASH_PICKUP_MAX_USD in sync
+// with the frontend). The server makes a random 6-digit pickup code that only
+// the sender (and, through them, the recipient) ever sees — staff are never
+// shown it, they have to type in what the recipient tells them and the
+// server checks it before the transfer can be marked as handed over.
+const PAYOUT_METHODS = ['mobile_money', 'bank_transfer', 'cash_pickup'];
+const CASH_PICKUP_COUNTRIES = ['GH'];
+const CASH_PICKUP_MAX_USD = 300;
+
+function stripPickupCode(row) {
+  if (!row) return row;
+  const { pickup_code, ...rest } = row;
+  return rest;
+}
 const FALLBACK_RATES = { GHS: 15.5, NGN: 1650 }; // emergency-only fallback if both live sources fail
 
 // A transaction's lifecycle. Users can only ever create one in 'pending' —
@@ -348,6 +365,8 @@ app.post('/api/transfer', requireUserAuth, async (req, res) => {
       mobileMoneyNumber,
       bankName,
       bankAccountNumber,
+      recipientPhone,
+      pickupLocation,
       receiptUrl
     } = req.body;
 
@@ -369,6 +388,27 @@ app.post('/api/transfer', requireUserAuth, async (req, res) => {
     }
     if (payoutMethod === 'bank_transfer' && (!bankName || !bankAccountNumber)) {
       return res.status(400).json({ success: false, error: 'Bank name and account number are required.' });
+    }
+    if (!PAYOUT_METHODS.includes(payoutMethod)) {
+      return res.status(400).json({ success: false, error: 'Unknown payout method.' });
+    }
+
+    let cleanPhone = null;
+    let cleanPickupLocation = null;
+    let pickupCode = null;
+    if (payoutMethod === 'cash_pickup') {
+      if (!CASH_PICKUP_COUNTRIES.includes(recipientCountry)) {
+        return res.status(400).json({ success: false, error: 'Cash pickup is only available in Ghana right now.' });
+      }
+      cleanPhone = (recipientPhone || '').trim().slice(0, 30);
+      cleanPickupLocation = (pickupLocation || '').trim().slice(0, 120);
+      if (!cleanPhone || !cleanPickupLocation) {
+        return res.status(400).json({ success: false, error: 'Recipient phone number and pickup location are required for cash pickup.' });
+      }
+      if (parsedAmountUSD > CASH_PICKUP_MAX_USD) {
+        return res.status(400).json({ success: false, error: `Cash pickup is limited to $${CASH_PICKUP_MAX_USD} per transfer.` });
+      }
+      pickupCode = String(randomInt(100000, 1000000));
     }
 
     // The server recomputes the fee, rate, and payout amount itself rather
@@ -398,6 +438,9 @@ app.post('/api/transfer', requireUserAuth, async (req, res) => {
           mobile_money_number: payoutMethod === 'mobile_money' ? mobileMoneyNumber : null,
           bank_name: payoutMethod === 'bank_transfer' ? bankName : null,
           bank_account_number: payoutMethod === 'bank_transfer' ? bankAccountNumber : null,
+          recipient_phone: cleanPhone,
+          pickup_location: cleanPickupLocation,
+          pickup_code: pickupCode,
           receipt_url: receiptUrl ? receiptUrl : null,
           status: 'pending'
         }
@@ -543,7 +586,8 @@ app.get('/api/admin/transactions', requireAdminAuth, async (req, res) => {
     if (error) {
       return res.status(500).json({ success: false, error: error.message });
     }
-    res.json({ success: true, transactions: data });
+    // Staff never get to see a cash pickup code (see CASH_PICKUP_MAX_USD).
+    res.json({ success: true, transactions: data.map(stripPickupCode) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -556,7 +600,7 @@ app.get('/api/admin/transactions', requireAdminAuth, async (req, res) => {
 app.patch('/api/admin/transactions/:id/status', requireAdminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, payoutReference } = req.body;
+    const { status, payoutReference, pickupCode } = req.body;
 
     if (!TRANSACTION_STATUSES.includes(status)) {
       return res.status(400).json({
@@ -566,6 +610,31 @@ app.patch('/api/admin/transactions/:id/status', requireAdminAuth, async (req, re
     }
     if (status === 'sent' && !payoutReference) {
       return res.status(400).json({ success: false, error: 'A payout reference is required to mark a transfer as sent.' });
+    }
+
+    // Cash pickup safeguards. Marking one as 'sent' means the cash was handed
+    // over, so the code the recipient read out must match the one the server
+    // made — and it can't be skipped straight to 'completed' either.
+    const { data: existing, error: existingError } = await supabase
+      .from('transactions')
+      .select('payout_method, pickup_code, status')
+      .eq('id', id)
+      .maybeSingle();
+    if (existingError) {
+      return res.status(500).json({ success: false, error: existingError.message });
+    }
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Transaction not found.' });
+    }
+    if (existing.payout_method === 'cash_pickup') {
+      if (status === 'sent') {
+        if (!pickupCode || String(pickupCode).trim() !== existing.pickup_code) {
+          return res.status(400).json({ success: false, error: 'The pickup code does not match. Do not hand over any cash.' });
+        }
+      }
+      if (status === 'completed' && existing.status !== 'sent') {
+        return res.status(400).json({ success: false, error: 'A cash pickup must be marked as handed over (sent) with the pickup code first.' });
+      }
     }
 
     const update = {
@@ -590,7 +659,7 @@ app.patch('/api/admin/transactions/:id/status', requireAdminAuth, async (req, re
       return res.status(404).json({ success: false, error: 'Transaction not found.' });
     }
 
-    res.json({ success: true, data: data[0] });
+    res.json({ success: true, data: stripPickupCode(data[0]) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
