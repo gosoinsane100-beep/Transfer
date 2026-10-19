@@ -10,13 +10,19 @@ const cleanHandle = (raw) => (raw || '').trim().toLowerCase().replace(/[^a-z0-9_
 // Typing one of these usernames into the regular sign-in form (not sign-up)
 // routes to the staff login instead of the customer one — this is the only
 // way into the staff dashboard now, there's no separate staff screen.
-const RESERVED_ADMIN_HANDLES = ['admin-ghana', 'admin-usa', 'admin-nigeria'].map(cleanHandle);
+const RESERVED_ADMIN_HANDLES = ['admin-ghana', 'admin-usa', 'admin-nigeria', 'admin-owner'].map(cleanHandle);
 
+// Where a sender pays CediPay, per payment method. DEMO DETAILS: the Zelle,
+// PayPal, Binance, Bybit, MTN MoMo, cash drop-off and Nigerian bank entries
+// below are placeholders — swap in the real ones before real customers use it.
 const PAYMENT_HANDLES = {
   Zelle: 'zelle@yourdomain.com / +1 (555) 019-2831',
   PayPal_FF: 'paypal.me/yourbusiness',
   BinancePay: 'Binance Pay ID: 849201847',
   BybitPay: 'Bybit UID: 92837410',
+  MTN_MOMO: 'MTN MoMo number: 024 000 0000 (demo number)',
+  GH_CASH_DROPOFF: 'Hand the cash to a CediPay team member in Accra (demo — real location to be added)',
+  NG_BANK: 'Bank transfer to: Demo Bank · Account 0000000000 · CediPay Nigeria (demo details)',
   // USDT on the Solana network specifically — sending USDT on a different
   // network (Ethereum, Tron, etc.) to this address will not arrive.
   USDT_SOL: 'USDT (Solana network only): GYBEPGBCXsc8Sb1AudHffnVevdfKB38d8RprRtjiC6h3'
@@ -35,14 +41,51 @@ const PAYMENT_METHOD_LABELS = {
   PayPal_FF: 'PayPal (F&F)',
   BinancePay: 'Binance Pay',
   BybitPay: 'Bybit Pay',
-  USDT_SOL: 'USDT (Solana)'
+  USDT_SOL: 'USDT (Solana)',
+  MTN_MOMO: 'MTN MoMo',
+  GH_CASH_DROPOFF: 'Cash drop-off',
+  NG_BANK: 'Bank transfer'
 };
 const paymentMethodLabel = (code) => PAYMENT_METHOD_LABELS[code] || code;
 
+// The three regions. Adding a country later means adding a row here and to
+// the tables below (and to the matching tables in the backend's server.js).
 const COUNTRIES = {
-  GH: { label: 'Ghana', currency: 'GHS', symbol: '₵', networks: ['MTN', 'Telecel'], cashPickup: true },
-  NG: { label: 'Nigeria', currency: 'NGN', symbol: '₦', networks: [], cashPickup: false }
+  US: { label: 'United States', currency: 'USD', symbol: '$', networks: [] },
+  GH: { label: 'Ghana', currency: 'GHS', symbol: '₵', networks: ['MTN', 'Telecel'] },
+  NG: { label: 'Nigeria', currency: 'NGN', symbol: '₦', networks: [] }
 };
+const REGION_LABELS = { US: 'United States', GH: 'Ghana', NG: 'Nigeria', ALL: 'All regions' };
+
+// The home screen's rate card is quoted per 1 USD, so it only lists the
+// non-dollar countries.
+const PREVIEW_COUNTRIES = ['GH', 'NG'];
+
+// What a sender can pay with, depending on the country they're sending FROM.
+const PAYIN_OPTIONS = {
+  US: ['Zelle', 'PayPal_FF', 'BinancePay', 'BybitPay', 'USDT_SOL'],
+  GH: ['MTN_MOMO', 'GH_CASH_DROPOFF', 'USDT_SOL'],
+  NG: ['NG_BANK', 'USDT_SOL']
+};
+
+// How a recipient can be paid, depending on the country money is sent TO.
+const PAYOUT_OPTIONS = {
+  US: ['us_zelle', 'us_paypal', 'us_usdt'],
+  GH: ['mobile_money', 'bank_transfer', 'cash_pickup'],
+  NG: ['bank_transfer']
+};
+const PAYOUT_LABELS = {
+  mobile_money: 'Mobile money',
+  bank_transfer: 'Bank transfer',
+  cash_pickup: 'Cash pickup',
+  us_zelle: 'Zelle',
+  us_paypal: 'PayPal',
+  us_usdt: 'USDT (Solana)'
+};
+const payoutLabel = (code) => PAYOUT_LABELS[code] || code;
+const DEFAULT_AMOUNT = { US: '100', GH: '1000', NG: '150000' };
+const FEE_RATE = 0.05;
+const fmtMoney = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const STATUS_LABELS = {
   pending: 'Pending',
@@ -77,13 +120,15 @@ export default function App() {
 
   // Home screen rate preview
   const [previewCountry, setPreviewCountry] = useState('GH');
-  const [previewRate, setPreviewRate] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  // One rate per country, so a slow or failed response for one country can
+  // never end up shown under the other country's currency symbol.
+  const [previewRates, setPreviewRates] = useState({});
 
   // Transfer form state
-  const [amountUSD, setAmountUSD] = useState('100');
-  const [rate, setRate] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [originCountry, setOriginCountry] = useState('US');
+  const [amountSend, setAmountSend] = useState('100'); // in the SENDER's currency
+  const [payoutHandle, setPayoutHandle] = useState('');
+  const [rates, setRates] = useState({}); // keyed by country code, same reason as previewRates
   const [submitting, setSubmitting] = useState(false);
   const [senderName, setSenderName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Zelle');
@@ -120,7 +165,9 @@ export default function App() {
   const [actingOnId, setActingOnId] = useState(null);
 
   // Staff support inbox
-  const [adminView, setAdminView] = useState('transfers'); // 'transfers' | 'support'
+  const [adminView, setAdminView] = useState('transfers'); // 'transfers' | 'support' | 'ledger'
+  const [ledger, setLedger] = useState(null);
+  const [ledgerFetching, setLedgerFetching] = useState(false);
   const [supportMessages, setSupportMessages] = useState([]);
   const [supportFetching, setSupportFetching] = useState(false);
   const [supportReplyDrafts, setSupportReplyDrafts] = useState({});
@@ -128,19 +175,21 @@ export default function App() {
 
   useEffect(() => {
     if (user && userToken) {
-      fetchExchangeRate(recipientCountry);
+      // The Send form converts between any two countries, so load both
+      // non-dollar rates up front (USD is always 1).
+      PREVIEW_COUNTRIES.forEach((code) => fetchExchangeRate(code));
       fetchUserHistory(userToken);
       fetchMyMessages(userToken);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, userToken]);
 
+  // The home screen's rate card: fetch whenever its country toggle changes,
+  // signed in or not, and refresh whenever the Home tab is opened.
   useEffect(() => {
-    if (!user) {
-      fetchPreviewRate(previewCountry);
-    }
+    fetchPreviewRate(previewCountry);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewCountry, user]);
+  }, [previewCountry, activeTab, user]);
 
   useEffect(() => {
     if (admin && adminToken) {
@@ -150,29 +199,77 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, adminToken]);
 
-  const fetchPreviewRate = async (country) => {
+  // The settlement ledger is recalculated by the server every time it's opened.
+  useEffect(() => {
+    if (admin && adminToken && adminView === 'ledger') fetchLedger();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminView]);
+
+  const fetchLedger = async () => {
     try {
-      setPreviewLoading(true);
-      const response = await fetch(`${BACKEND_URL}/api/rate?country=${country}`);
+      setLedgerFetching(true);
+      const response = await fetch(`${BACKEND_URL}/api/admin/ledger`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
       const data = await response.json();
-      if (data.success) setPreviewRate(data.rate);
-    } catch (err) {
-      // leave previous value in place
+      if (data.success) {
+        setLedger(data);
+      } else if (response.status === 401 || response.status === 403) {
+        handleStaffLogout();
+      } else {
+        alert(data.error || 'Could not load the ledger.');
+      }
+    } catch (error) {
+      alert('Could not reach the server.');
     } finally {
-      setPreviewLoading(false);
+      setLedgerFetching(false);
     }
   };
 
-  const handleCountryChange = (country) => {
-    setRecipientCountry(country);
-    setPayoutMethod(country === 'GH' ? 'mobile_money' : 'bank_transfer');
+  const fetchPreviewRate = async (country) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/rate?country=${country}`);
+      const data = await response.json();
+      if (data.success && data.rate) {
+        setPreviewRates((prev) => ({ ...prev, [country]: data.rate }));
+      }
+    } catch (err) {
+      // no rate for this country yet — it keeps showing "···" rather than
+      // borrowing another country's number
+    }
+  };
+
+  // Clears everything specific to one payout method (used when the country
+  // money is being sent TO changes).
+  const resetPayoutFields = (country) => {
+    setPayoutMethod(PAYOUT_OPTIONS[country][0]);
     setMobileNetwork(COUNTRIES[country].networks[0] || '');
     setMobileMoneyNumber('');
     setBankName('');
     setBankAccountNumber('');
     setRecipientPhone('');
     setPickupLocation('');
+    setPayoutHandle('');
+  };
+
+  // "Sending to"
+  const handleCountryChange = (country) => {
+    setRecipientCountry(country);
+    resetPayoutFields(country);
     fetchExchangeRate(country);
+  };
+
+  // "Sending from": decides what the sender can pay with and which currency
+  // the amount is in. If it lands on the same country as the destination,
+  // the destination moves to another country.
+  const handleOriginChange = (country) => {
+    setOriginCountry(country);
+    setPaymentMethod(PAYIN_OPTIONS[country][0]);
+    setAmountSend(DEFAULT_AMOUNT[country]);
+    fetchExchangeRate(country);
+    if (recipientCountry === country) {
+      handleCountryChange(Object.keys(COUNTRIES).find((c) => c !== country));
+    }
   };
 
   const handleAuth = async () => {
@@ -248,19 +345,20 @@ export default function App() {
     setAuthPassword('');
     setAdminTransactions([]);
     setSupportMessages([]);
+    setLedger(null);
     setAdminView('transfers');
   };
 
   const fetchExchangeRate = async (country) => {
+    if (country === 'US') return; // USD is the middle step for every pair: always 1
     try {
-      setLoading(true);
       const response = await fetch(`${BACKEND_URL}/api/rate?country=${country}`);
       const data = await response.json();
-      if (data.success) setRate(data.rate);
+      if (data.success && data.rate) {
+        setRates((prev) => ({ ...prev, [country]: data.rate }));
+      }
     } catch (error) {
-      // keep whatever rate we already had
-    } finally {
-      setLoading(false);
+      // no rate for this country yet — the form shows "···" instead
     }
   };
 
@@ -409,30 +507,51 @@ export default function App() {
 
   const statusLabel = (status) => (STATUS_LABELS[status] ? STATUS_LABELS[status] : STATUS_LABELS.pending);
 
-  const platformFeePercent = 0.05;
-  const numUSD = parseFloat(amountUSD ? amountUSD : '0');
-  const feeUSD = numUSD * platformFeePercent;
-  const usdAfterFee = numUSD - feeUSD;
-  const localAmount = rate ? usdAfterFee * rate : null;
-  const countryInfo = COUNTRIES[recipientCountry];
+  // Money maths for the Send form. Rates are "local units per 1 USD" and USD
+  // is the middle step for every pair. The server redoes all of this when the
+  // transfer is submitted — these numbers are just what the sender sees.
+  const originInfo = COUNTRIES[originCountry]; // where the sender is
+  const countryInfo = COUNTRIES[recipientCountry]; // where the money goes
+  const getRate = (code) => (code === 'US' ? 1 : rates[code] !== undefined ? rates[code] : null);
+  const originRate = getRate(originCountry);
+  const destRate = getRate(recipientCountry);
+  const numSend = parseFloat(amountSend ? amountSend : '0');
+  const feeSend = numSend * FEE_RATE;
+  const netSend = numSend - feeSend;
+  const usdEquivalent = originRate ? numSend / originRate : null;
+  const localAmount = originRate && destRate ? (netSend / originRate) * destRate : null;
+  const crossRate = originRate && destRate ? destRate / originRate : null;
+  const limitsInSenderCurrency = originRate
+    ? `${originInfo.symbol}${fmtMoney(Math.round(MIN_TRANSFER_USD * originRate))} – ${originInfo.symbol}${fmtMoney(Math.round(MAX_TRANSFER_USD * originRate))}`
+    : null;
+  const previewRate = previewRates[previewCountry] !== undefined ? previewRates[previewCountry] : null;
 
   const handleSubmitOrder = async () => {
     const missingRecipientField =
       !recipientName ||
       (payoutMethod === 'mobile_money' && !mobileMoneyNumber) ||
       (payoutMethod === 'bank_transfer' && (!bankName || !bankAccountNumber)) ||
-      (payoutMethod === 'cash_pickup' && (!recipientPhone || !pickupLocation));
+      (payoutMethod === 'cash_pickup' && (!recipientPhone || !pickupLocation)) ||
+      (payoutMethod.startsWith('us_') && !payoutHandle.trim());
 
     if (!senderName || missingRecipientField) {
       alert("Fill in your name and the recipient's details before submitting.");
       return;
     }
-    if (payoutMethod === 'cash_pickup' && numUSD > CASH_PICKUP_MAX_USD) {
-      alert(`Cash pickup is limited to $${CASH_PICKUP_MAX_USD} per transfer.`);
+    if (!Number.isFinite(numSend) || numSend <= 0) {
+      alert('Enter the amount you want to send.');
       return;
     }
-    if (!Number.isFinite(numUSD) || numUSD < MIN_TRANSFER_USD || numUSD > MAX_TRANSFER_USD) {
-      alert(`Transfers must be between $${MIN_TRANSFER_USD} and $${MAX_TRANSFER_USD}.`);
+    if (!originRate || !destRate) {
+      alert('Exchange rates are still loading. Try again in a moment.');
+      return;
+    }
+    if (usdEquivalent < MIN_TRANSFER_USD || usdEquivalent > MAX_TRANSFER_USD) {
+      alert(`Transfers must be between $${MIN_TRANSFER_USD} and $${MAX_TRANSFER_USD}${limitsInSenderCurrency && originCountry !== 'US' ? ` (about ${limitsInSenderCurrency} in your currency)` : ''}.`);
+      return;
+    }
+    if (payoutMethod === 'cash_pickup' && usdEquivalent > CASH_PICKUP_MAX_USD) {
+      alert(`Cash pickup is limited to $${CASH_PICKUP_MAX_USD} per transfer.`);
       return;
     }
 
@@ -443,7 +562,9 @@ export default function App() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
         body: JSON.stringify({
           senderName,
-          amountUSD: numUSD,
+          originCountry,
+          amountSend: numSend,
+          payoutHandle: payoutMethod.startsWith('us_') ? payoutHandle.trim() : undefined,
           paymentMethod,
           recipientCountry,
           recipientName,
@@ -538,7 +659,95 @@ export default function App() {
     if (item.payout_method === 'cash_pickup') {
       return `Cash pickup · ${item.pickup_location || ''} · ${item.recipient_phone || ''}`;
     }
+    if (item.payout_method && item.payout_method.startsWith('us_')) {
+      return `${payoutLabel(item.payout_method)} · ${item.payout_handle || ''}`;
+    }
     return '—';
+  };
+
+  // What the sender paid, in the sender's own currency. Older transfers (made
+  // before multi-region) only have amount_usd, so they fall back to that.
+  const sentAmountLabel = (item) => {
+    const hasSend = item.amount_send !== null && item.amount_send !== undefined;
+    const code = hasSend ? item.origin_country || 'US' : 'US';
+    const symbol = COUNTRIES[code] ? COUNTRIES[code].symbol : '$';
+    const currency = hasSend ? item.send_currency || 'USD' : 'USD';
+    return `${symbol}${fmtMoney(hasSend ? item.amount_send : item.amount_usd)} ${currency}`;
+  };
+
+  // "United States → Ghana"
+  const routeLabel = (item) => {
+    const from = REGION_LABELS[item.origin_country || 'US'] || item.origin_country;
+    const to = REGION_LABELS[item.recipient_country] || item.recipient_country;
+    return `${from} → ${to}`;
+  };
+
+  // What this staff member may do with one transfer. The server enforces the
+  // same rules; this just hides buttons that would be refused.
+  //   - the team in the SENDER's country confirms the payment arrived
+  //   - the team in the RECIPIENT's country pays out and completes
+  //   - either involved team can reject before payout
+  //   - the owner account is read-only
+  const staffControls = (item) => {
+    const region = admin ? admin.region : null;
+    const origin = item.origin_country || 'US';
+    const dest = item.recipient_country;
+    const out = { advance: false, enterPayout: false, reject: false, hint: '' };
+    if (region === 'ALL') {
+      out.hint = 'Owner view — read only.';
+      return out;
+    }
+    if (item.status === 'pending') {
+      out.reject = true;
+      if (region === origin) out.advance = true;
+      else out.hint = `Waiting for the ${REGION_LABELS[origin]} team to confirm the sender's payment arrived.`;
+    } else if (item.status === 'payment_received') {
+      out.reject = true;
+      if (region === dest) {
+        out.advance = true;
+        out.enterPayout = true;
+      } else {
+        out.hint = `Payment confirmed. Waiting for the ${REGION_LABELS[dest]} team to pay the recipient.`;
+      }
+    } else if (item.status === 'sent') {
+      if (region === dest) out.advance = true;
+      else out.hint = `Paid out by the ${REGION_LABELS[dest]} team. Waiting for them to mark it completed.`;
+    }
+    return out;
+  };
+
+  const advanceLabel = (item) => {
+    if (item.status === 'pending') return "Mark sender's payment received";
+    if (item.status === 'payment_received') return 'Mark paid out (sent)';
+    return ADVANCE_LABEL[item.status];
+  };
+
+  const usd = (n) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // One region's money position (all figures are USD equivalents).
+  const renderLedgerCard = (code, x) => {
+    if (!x) return null;
+    const net = Number(x.net_to_settle_usd) || 0;
+    let verdict = 'All square — nothing to settle with other regions.';
+    if (net > 0.004) verdict = `${REGION_LABELS[code]} is holding ${usd(net)} that belongs to other regions.`;
+    if (net < -0.004) verdict = `Other regions owe ${REGION_LABELS[code]} ${usd(-net)} (paid out to recipients ahead of being reimbursed).`;
+    return (
+      <View key={code} style={styles.historyCard}>
+        <View style={styles.historyHeader}>
+          <Text style={styles.historyTitle}>{REGION_LABELS[code]}</Text>
+          <Text style={[styles.badge, net > 0.004 ? styles.badgePending : net < -0.004 ? styles.badgeProgress : styles.badgeSuccess]}>
+            {net > 0.004 ? 'Holds funds' : net < -0.004 ? 'Is owed' : 'Square'}
+          </Text>
+        </View>
+        <Text style={styles.historyDetail}>Collected from senders ({x.collected_count}): {usd(x.collected_usd)}</Text>
+        <Text style={styles.historyDetail}>Fee kept here: {usd(x.fee_kept_usd)}</Text>
+        <Text style={styles.historyDetail}>Paid out to recipients ({x.paid_out_count}): {usd(x.paid_out_usd)}</Text>
+        {Number(x.fee_for_payout_usd) > 0 ? (
+          <Text style={styles.historyDetail}>Fee share for paying out: {usd(x.fee_for_payout_usd)}</Text>
+        ) : null}
+        <Text style={styles.historyHighlight}>{verdict}</Text>
+      </View>
+    );
   };
 
   const openSupportCount = supportMessages.filter((m) => m.status === 'open').length;
@@ -559,7 +768,9 @@ export default function App() {
         <View style={styles.topBarDark}>
           <View>
             <Text style={styles.brandTitle}>CediPay staff</Text>
-            <Text style={styles.userSubText}>Signed in as {admin.displayName || admin.username}</Text>
+            <Text style={styles.userSubText}>
+              {admin.displayName || admin.username} · {REGION_LABELS[admin.region] || admin.region || 'No region'}
+            </Text>
           </View>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleStaffLogout}>
             <Text style={styles.logoutBtnText}>Sign out</Text>
@@ -575,7 +786,38 @@ export default function App() {
               Support{openSupportCount > 0 ? ` (${openSupportCount})` : ''}
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity style={[styles.filterChip, adminView === 'ledger' && styles.filterChipActive]} onPress={() => setAdminView('ledger')}>
+            <Text style={[styles.filterChipText, adminView === 'ledger' && styles.filterChipTextActive]}>Ledger</Text>
+          </TouchableOpacity>
         </View>
+
+        {adminView === 'ledger' && (
+          <ScrollView contentContainerStyle={styles.scroll}>
+            {ledgerFetching && !ledger ? (
+              <ActivityIndicator size="large" color="#0F4C3A" style={{ marginVertical: 20 }} />
+            ) : !ledger ? (
+              <Text style={styles.emptyText}>Nothing to show yet.</Text>
+            ) : (
+              <>
+                {ledger.scope === 'ALL' ? (
+                  <View style={styles.infoBox}>
+                    <Text style={styles.infoText}>Your share of fees (owner): {usd(ledger.owner_fee_usd)}</Text>
+                    <Text style={styles.infoText}>Regions that "hold funds" owe that money to the regions that "are owed". The app only keeps the record, it never moves money.</Text>
+                  </View>
+                ) : (
+                  <View style={styles.infoBox}>
+                    <Text style={styles.infoText}>This is the running total for your region only. It is a record to settle up with the other team. The app never moves money itself.</Text>
+                  </View>
+                )}
+                {Object.keys(ledger.regions).map((code) => renderLedgerCard(code, ledger.regions[code]))}
+                <Text style={styles.emptyText}>All figures are USD equivalents, counted once a payment is confirmed (collected) or paid out.</Text>
+                <TouchableOpacity style={styles.adminActionBtn} onPress={fetchLedger} disabled={ledgerFetching}>
+                  {ledgerFetching ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Refresh</Text>}
+                </TouchableOpacity>
+              </>
+            )}
+          </ScrollView>
+        )}
 
         {adminView === 'transfers' && (
           <View style={styles.filterRow}>
@@ -635,16 +877,27 @@ export default function App() {
           ) : adminFilteredTransactions.length === 0 ? (
             <Text style={styles.emptyText}>Nothing here.</Text>
           ) : (
-            adminFilteredTransactions.map((item) => (
+            adminFilteredTransactions.map((item) => {
+              const controls = staffControls(item);
+              const origin = item.origin_country || 'US';
+              const myRole =
+                admin.region === 'ALL' ? null
+                : admin.region === origin ? 'Your team collects the sender\'s payment'
+                : 'Your team pays out the recipient';
+              return (
               <View key={item.id} style={styles.historyCard}>
                 <View style={styles.historyHeader}>
                   <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
                   <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                 </View>
+                <Text style={styles.historyDetail}>{routeLabel(item)}</Text>
+                {myRole ? <Text style={styles.historyDetail}>{myRole}</Text> : null}
                 <Text style={styles.historyDetail}>{item.sender_name} · {item.sender_email}</Text>
-                <Text style={styles.historyDetail}>${item.amount_usd} via {paymentMethodLabel(item.payment_method)}</Text>
+                <Text style={styles.historyDetail}>
+                  Sender pays {sentAmountLabel(item)} via {paymentMethodLabel(item.payment_method)}{origin !== 'US' ? ` (about $${item.amount_usd} USD)` : ''}
+                </Text>
                 <Text style={styles.historyHighlight}>
-                  To {item.recipient_name} — {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? Number(item.amount_local).toLocaleString() : '—'} {item.local_currency}
+                  To {item.recipient_name} — {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? fmtMoney(item.amount_local) : '—'} {item.local_currency}
                 </Text>
                 <Text style={styles.historyDetail}>{recipientLine(item)}</Text>
                 {item.payout_reference ? <Text style={styles.historyDetail}>Payout ref: {item.payout_reference}</Text> : null}
@@ -654,7 +907,7 @@ export default function App() {
                   </TouchableOpacity>
                 ) : null}
 
-                {item.status === 'payment_received' && item.payout_method === 'cash_pickup' && (
+                {controls.enterPayout && item.payout_method === 'cash_pickup' && (
                   <TextInput
                     style={styles.inputMargin}
                     placeholder="Pickup code the recipient tells you (required)"
@@ -663,7 +916,7 @@ export default function App() {
                     onChangeText={(val) => setPickupCodeDrafts((prev) => ({ ...prev, [item.id]: val }))}
                   />
                 )}
-                {item.status === 'payment_received' && (
+                {controls.enterPayout && (
                   <TextInput
                     style={styles.inputMargin}
                     placeholder={item.payout_method === 'cash_pickup'
@@ -674,18 +927,20 @@ export default function App() {
                   />
                 )}
 
-                {NEXT_STATUS[item.status] && (
+                {controls.advance && NEXT_STATUS[item.status] && (
                   <TouchableOpacity style={styles.adminActionBtn} onPress={() => handleAdvanceStatus(item)} disabled={actingOnId === item.id}>
-                    {actingOnId === item.id ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>{ADVANCE_LABEL[item.status]}</Text>}
+                    {actingOnId === item.id ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>{advanceLabel(item)}</Text>}
                   </TouchableOpacity>
                 )}
-                {item.status !== 'completed' && item.status !== 'rejected' && (
+                {controls.reject && (
                   <TouchableOpacity style={styles.adminRejectBtn} onPress={() => handleReject(item)} disabled={actingOnId === item.id}>
                     <Text style={styles.adminRejectText}>Reject</Text>
                   </TouchableOpacity>
                 )}
+                {controls.hint ? <Text style={styles.waitingHint}>{controls.hint}</Text> : null}
               </View>
-            ))
+              );
+            })
           )}
         </ScrollView>
         )}
@@ -752,7 +1007,7 @@ export default function App() {
               <View style={styles.rateCardTop}>
                 <Text style={styles.rateCardTitle}>Exchange rate</Text>
                 <View style={styles.countryToggleRow}>
-                  {Object.keys(COUNTRIES).map((code) => (
+                  {PREVIEW_COUNTRIES.map((code) => (
                     <TouchableOpacity key={code} style={[styles.countryPill, previewCountry === code && styles.countryPillActive]} onPress={() => setPreviewCountry(code)}>
                       <Text style={[styles.countryPillText, previewCountry === code && styles.countryPillTextActive]}>{code}</Text>
                     </TouchableOpacity>
@@ -762,7 +1017,7 @@ export default function App() {
               <View style={styles.rateRow}>
                 <Text style={styles.currencySymbol}>{COUNTRIES[previewCountry].symbol}</Text>
                 <Text style={styles.rateHighlight}>
-                  {previewLoading || previewRate === null ? '···' : previewRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {previewRate === null ? '···' : previewRate.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </Text>
               </View>
               <Text style={styles.rateCardSub}>per 1 USD, to {COUNTRIES[previewCountry].label}</Text>
@@ -770,7 +1025,7 @@ export default function App() {
 
             <View style={styles.bannerCard}>
               <Text style={styles.bannerTitle}>Send money home</Text>
-              <Text style={styles.bannerDesc}>Send USD from the US — your family receives mobile money or a bank transfer in Ghana or Nigeria, usually within a day.</Text>
+              <Text style={styles.bannerDesc}>Send between the US, Ghana and Nigeria — you pay in your own currency, and your family is paid locally by mobile money, bank transfer, cash or Zelle, usually within a day.</Text>
               <TouchableOpacity style={styles.bannerBtn} onPress={() => setActiveTab('send')}>
                 <Text style={styles.bannerBtnText}>Send money</Text>
               </TouchableOpacity>
@@ -784,7 +1039,7 @@ export default function App() {
                 <View key={item.id} style={styles.miniCard}>
                   <View>
                     <Text style={styles.miniCardTitle}>To {item.recipient_name}</Text>
-                    <Text style={styles.miniCardSub}>${item.amount_usd} USD ({paymentMethodLabel(item.payment_method)})</Text>
+                    <Text style={styles.miniCardSub}>{sentAmountLabel(item)} ({paymentMethodLabel(item.payment_method)})</Text>
                   </View>
                   <Text style={[styles.miniStatus, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                 </View>
@@ -796,13 +1051,13 @@ export default function App() {
         {activeTab === 'send' && (
           <View style={styles.screenContainer}>
             <Text style={styles.title}>New transfer</Text>
-            <Text style={styles.subtitle}>Send USD, your family receives local currency</Text>
+            <Text style={styles.subtitle}>You pay in your own currency, your family is paid in theirs</Text>
 
             {orderSubmitted ? (
               <View style={styles.successContainer}>
                 <Text style={styles.successTitle}>Transfer submitted</Text>
                 <Text style={styles.successText}>
-                  Send ${numUSD} via {paymentMethodLabel(paymentMethod)}. Once it's confirmed, {countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'} will {payoutMethod === 'cash_pickup' ? 'be ready for cash pickup by' : 'go out to'} {recipientName}.
+                  Send {originInfo.symbol}{fmtMoney(numSend)} via {paymentMethodLabel(paymentMethod)}. Once it's confirmed, {countryInfo.symbol}{localAmount ? fmtMoney(localAmount) : '—'} will {payoutMethod === 'cash_pickup' ? 'be ready for cash pickup by' : 'be paid out to'} {recipientName}.
                 </Text>
                 {submittedPickupCode ? (
                   <View style={styles.pickupCodeBox}>
@@ -819,9 +1074,18 @@ export default function App() {
               </View>
             ) : (
               <>
-                <Text style={styles.sectionHeader}>Sending to</Text>
+                <Text style={styles.sectionHeader}>Sending from</Text>
                 <View style={styles.railRow}>
                   {Object.keys(COUNTRIES).map((code) => (
+                    <TouchableOpacity key={code} style={[styles.railButton, originCountry === code && styles.railButtonActive]} onPress={() => handleOriginChange(code)}>
+                      <Text style={[styles.railText, originCountry === code && styles.railTextActive]}>{COUNTRIES[code].label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.sectionHeader}>Sending to</Text>
+                <View style={styles.railRow}>
+                  {Object.keys(COUNTRIES).filter((code) => code !== originCountry).map((code) => (
                     <TouchableOpacity key={code} style={[styles.railButton, recipientCountry === code && styles.railButtonActive]} onPress={() => handleCountryChange(code)}>
                       <Text style={[styles.railText, recipientCountry === code && styles.railTextActive]}>{COUNTRIES[code].label}</Text>
                     </TouchableOpacity>
@@ -829,19 +1093,23 @@ export default function App() {
                 </View>
 
                 <View style={styles.inputContainer}>
-                  <Text style={styles.label}>You send</Text>
-                  <TextInput style={styles.input} keyboardType="numeric" value={amountUSD} onChangeText={setAmountUSD} />
+                  <Text style={styles.label}>You send ({originInfo.currency})</Text>
+                  <TextInput style={styles.input} keyboardType="numeric" value={amountSend} onChangeText={setAmountSend} />
                 </View>
 
                 <View style={styles.infoBox}>
-                  <Text style={styles.infoText}>Limits: ${MIN_TRANSFER_USD} – ${MAX_TRANSFER_USD} per transfer</Text>
-                  <Text style={styles.infoText}>Fee (5%): ${feeUSD.toFixed(2)}</Text>
-                  <Text style={styles.infoText}>Rate: $1 = {loading || rate === null ? '···' : rate.toLocaleString(undefined, { maximumFractionDigits: 2 })} {countryInfo.currency}</Text>
+                  <Text style={styles.infoText}>
+                    Limits: ${MIN_TRANSFER_USD} – ${MAX_TRANSFER_USD} per transfer{originCountry !== 'US' && limitsInSenderCurrency ? ` (about ${limitsInSenderCurrency})` : ''}
+                  </Text>
+                  <Text style={styles.infoText}>Fee (5%): {originInfo.symbol}{fmtMoney(feeSend)}</Text>
+                  <Text style={styles.infoText}>
+                    Rate: 1 {originInfo.currency} = {crossRate === null ? '···' : crossRate.toLocaleString(undefined, { maximumSignificantDigits: 5 })} {countryInfo.currency}
+                  </Text>
                 </View>
 
                 <View style={styles.resultContainer}>
                   <Text style={styles.resultLabel}>They receive</Text>
-                  <Text style={styles.resultValue}>{countryInfo.symbol}{localAmount ? localAmount.toLocaleString() : '—'}</Text>
+                  <Text style={styles.resultValue}>{countryInfo.symbol}{localAmount ? fmtMoney(localAmount) : '—'}</Text>
                 </View>
 
                 <Text style={styles.sectionHeader}>Your details</Text>
@@ -849,7 +1117,7 @@ export default function App() {
 
                 <Text style={styles.sectionHeader}>How you're paying</Text>
                 <View style={styles.railRow}>
-                  {['Zelle', 'PayPal_FF', 'BinancePay', 'BybitPay', 'USDT_SOL'].map((method) => (
+                  {PAYIN_OPTIONS[originCountry].map((method) => (
                     <TouchableOpacity key={method} style={[styles.railButton, paymentMethod === method && styles.railButtonActive]} onPress={() => setPaymentMethod(method)}>
                       <Text style={[styles.railText, paymentMethod === method && styles.railTextActive]}>{paymentMethodLabel(method)}</Text>
                     </TouchableOpacity>
@@ -857,7 +1125,11 @@ export default function App() {
                 </View>
 
                 <View style={styles.handleBox}>
-                  <Text style={styles.handleLabel}>Send the exact amount to:</Text>
+                  <Text style={styles.handleLabel}>
+                    {paymentMethod === 'USDT_SOL'
+                      ? `Send the equivalent of ${originInfo.symbol}${fmtMoney(numSend)} in USDT to:`
+                      : `Send exactly ${originInfo.symbol}${fmtMoney(numSend)} to:`}
+                  </Text>
                   <Text style={styles.handleText}>{PAYMENT_HANDLES[paymentMethod]}</Text>
                 </View>
 
@@ -873,19 +1145,11 @@ export default function App() {
 
                 <Text style={styles.sectionHeader}>How they'll receive it</Text>
                 <View style={styles.railRow}>
-                  {countryInfo.networks.length > 0 && (
-                    <TouchableOpacity style={[styles.railButton, payoutMethod === 'mobile_money' && styles.railButtonActive]} onPress={() => setPayoutMethod('mobile_money')}>
-                      <Text style={[styles.railText, payoutMethod === 'mobile_money' && styles.railTextActive]}>Mobile money</Text>
+                  {PAYOUT_OPTIONS[recipientCountry].map((method) => (
+                    <TouchableOpacity key={method} style={[styles.railButton, payoutMethod === method && styles.railButtonActive]} onPress={() => setPayoutMethod(method)}>
+                      <Text style={[styles.railText, payoutMethod === method && styles.railTextActive]}>{payoutLabel(method)}</Text>
                     </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={[styles.railButton, payoutMethod === 'bank_transfer' && styles.railButtonActive]} onPress={() => setPayoutMethod('bank_transfer')}>
-                    <Text style={[styles.railText, payoutMethod === 'bank_transfer' && styles.railTextActive]}>Bank transfer</Text>
-                  </TouchableOpacity>
-                  {countryInfo.cashPickup && (
-                    <TouchableOpacity style={[styles.railButton, payoutMethod === 'cash_pickup' && styles.railButtonActive]} onPress={() => setPayoutMethod('cash_pickup')}>
-                      <Text style={[styles.railText, payoutMethod === 'cash_pickup' && styles.railTextActive]}>Cash pickup</Text>
-                    </TouchableOpacity>
-                  )}
+                  ))}
                 </View>
 
                 {payoutMethod === 'mobile_money' && countryInfo.networks.length > 0 && (
@@ -905,6 +1169,27 @@ export default function App() {
                   <>
                     <TextInput style={styles.inputMargin} placeholder="Bank name" value={bankName} onChangeText={setBankName} />
                     <TextInput style={styles.inputMargin} placeholder="Account number" keyboardType="numeric" value={bankAccountNumber} onChangeText={setBankAccountNumber} />
+                  </>
+                )}
+
+                {payoutMethod.startsWith('us_') && (
+                  <>
+                    <TextInput
+                      style={styles.inputMargin}
+                      autoCapitalize="none"
+                      placeholder={
+                        payoutMethod === 'us_zelle' ? 'Recipient Zelle email or phone'
+                        : payoutMethod === 'us_paypal' ? 'Recipient PayPal email'
+                        : 'Recipient Solana wallet address'
+                      }
+                      value={payoutHandle}
+                      onChangeText={setPayoutHandle}
+                    />
+                    {payoutMethod === 'us_usdt' && (
+                      <View style={styles.infoBox}>
+                        <Text style={styles.infoText}>USDT is sent on the Solana network only. A different network's address will not work and the money can be lost.</Text>
+                      </View>
+                    )}
                   </>
                 )}
 
@@ -944,9 +1229,10 @@ export default function App() {
                     <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
                     <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                   </View>
-                  <Text style={styles.historyDetail}>Paid: ${item.amount_usd} USD via {paymentMethodLabel(item.payment_method)}</Text>
+                  <Text style={styles.historyDetail}>{routeLabel(item)}</Text>
+                  <Text style={styles.historyDetail}>Paid: {sentAmountLabel(item)} via {paymentMethodLabel(item.payment_method)}</Text>
                   <Text style={styles.historyHighlight}>
-                    Payout: {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? Number(item.amount_local).toLocaleString() : '—'} {item.local_currency}
+                    Payout: {COUNTRIES[item.recipient_country] ? COUNTRIES[item.recipient_country].symbol : ''}{item.amount_local ? fmtMoney(item.amount_local) : '—'} {item.local_currency}
                   </Text>
                   <Text style={styles.historyDetail}>To: {item.recipient_name} — {recipientLine(item)}</Text>
                   {item.payout_method === 'cash_pickup' && item.pickup_code && item.status !== 'completed' && item.status !== 'rejected' ? (
@@ -1155,6 +1441,7 @@ const styles = StyleSheet.create({
   receiptLink: { marginTop: 6 },
   receiptLinkText: { fontSize: 12, color: colors.surface, fontWeight: '600' },
 
+  waitingHint: { fontSize: 12, color: colors.muted, fontStyle: 'italic', marginTop: 8 },
   adminActionBtn: { backgroundColor: colors.surface, paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 8 },
   adminRejectBtn: { paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: colors.dangerText },
   adminRejectText: { color: colors.dangerText, fontSize: 13, fontWeight: '700' },
