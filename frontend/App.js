@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, ScrollView, ActivityIndicator, Linking, Platform } from 'react-native';
 
 const BACKEND_URL = 'https://transfer-app-df1j.onrender.com';
@@ -173,10 +173,11 @@ export default function App() {
   // Staff dashboard
   const [adminTransactions, setAdminTransactions] = useState([]);
   const [adminFetching, setAdminFetching] = useState(false);
-  const [adminFilter, setAdminFilter] = useState('pending');
+  const [adminFilter, setAdminFilter] = useState('todo');
   const [payoutRefDrafts, setPayoutRefDrafts] = useState({});
   const [pickupCodeDrafts, setPickupCodeDrafts] = useState({});
   const [actingOnId, setActingOnId] = useState(null);
+  const actingLock = useRef(false);
 
   // Staff support inbox
   const [adminView, setAdminView] = useState('transfers'); // 'transfers' | 'support' | 'ledger'
@@ -328,6 +329,7 @@ export default function App() {
         if (data.success) {
           setAdmin(data.admin);
           setAdminToken(data.token);
+          setAdminFilter(data.admin.region === 'ALL' ? 'all' : 'todo');
         } else {
           notify(data.error || 'Could not sign you in.');
         }
@@ -622,10 +624,41 @@ export default function App() {
     }
   };
 
-  const handleAdvanceStatus = async (item) => {
+  // One status change at a time. The ref (not state) is what blocks a fast
+  // second tap, because state only updates after the screen has redrawn.
+  const sendStatusChange = async (item, body, localChange) => {
+    if (actingLock.current) return;
+    actingLock.current = true;
+    setActingOnId(item.id);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/admin/transactions/${item.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (data.success) {
+        // Show the new status straight away; the refresh below confirms it.
+        setAdminTransactions((prev) => prev.map((t) => (t.id === item.id ? { ...t, ...localChange } : t)));
+      } else {
+        notify(data.error || 'Could not update that transfer.');
+      }
+      // Success or not, re-read the list. If someone else already changed this
+      // transfer, the card now shows its real status.
+      await fetchAdminTransactions(true);
+    } catch (err) {
+      notify('Could not reach the server.');
+    } finally {
+      actingLock.current = false;
+      setActingOnId(null);
+    }
+  };
+
+  const handleAdvanceStatus = (item) => {
     const next = NEXT_STATUS[item.status];
     if (!next) return;
-    if (next === 'sent' && !(payoutRefDrafts[item.id] || '').trim()) {
+    const payoutReference = (payoutRefDrafts[item.id] || '').trim();
+    if (next === 'sent' && !payoutReference) {
       notify('Enter a payout reference before marking this as sent.', 'info');
       return;
     }
@@ -633,49 +666,19 @@ export default function App() {
       notify('Enter the pickup code the recipient gives you before handing over any cash.', 'info');
       return;
     }
-    setActingOnId(item.id);
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/admin/transactions/${item.id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({
-          status: next,
-          payoutReference: payoutRefDrafts[item.id],
-          pickupCode: item.payout_method === 'cash_pickup' ? pickupCodeDrafts[item.id] : undefined
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        fetchAdminTransactions();
-      } else {
-        notify(data.error || 'Could not update that transfer.');
-      }
-    } catch (err) {
-      notify('Could not reach the server.');
-    } finally {
-      setActingOnId(null);
-    }
+    sendStatusChange(
+      item,
+      {
+        status: next,
+        payoutReference: payoutReference || undefined,
+        pickupCode: item.payout_method === 'cash_pickup' ? pickupCodeDrafts[item.id] : undefined
+      },
+      next === 'sent' ? { status: next, payout_reference: payoutReference } : { status: next }
+    );
   };
 
-  const handleReject = async (item) => {
-    setActingOnId(item.id);
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/admin/transactions/${item.id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ status: 'rejected' })
-      });
-      const data = await response.json();
-      if (data.success) {
-        fetchAdminTransactions();
-      } else {
-        notify(data.error || 'Could not update that transfer.');
-      }
-    } catch (err) {
-      notify('Could not reach the server.');
-    } finally {
-      setActingOnId(null);
-    }
+  const handleReject = (item) => {
+    sendStatusChange(item, { status: 'rejected' }, { status: 'rejected' });
   };
 
   const recipientLine = (item) => {
@@ -779,10 +782,27 @@ export default function App() {
     );
   };
 
+  const noticeLayer = notice ? (
+    <View style={styles.noticeOverlay}>
+      <View style={styles.noticeCard}>
+        <View style={[styles.noticeAccent, notice.kind === 'error' ? styles.noticeAccentError : styles.noticeAccentInfo]} />
+        <Text style={styles.noticeTitle}>{notice.kind === 'error' ? "That didn't work" : 'Please check'}</Text>
+        <Text style={styles.noticeMessage}>{notice.message}</Text>
+        <TouchableOpacity style={styles.button} onPress={() => setNotice(null)}>
+          <Text style={styles.buttonText}>OK</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  ) : null;
+
   const openSupportCount = supportMessages.filter((m) => m.status === 'open').length;
+
+  // Transfers waiting on THIS team (the owner account has none: it's read-only).
+  const needsActionCount = adminTransactions.filter((t) => staffControls(t).advance).length;
 
   const adminFilteredTransactions = adminTransactions.filter((item) => {
     if (adminFilter === 'all') return true;
+    if (adminFilter === 'todo') return staffControls(item).advance;
     if (adminFilter === 'in_progress') return item.status === 'payment_received' || item.status === 'sent';
     return item.status === adminFilter;
   });
@@ -806,18 +826,23 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.filterRow}>
-          <TouchableOpacity style={[styles.filterChip, adminView === 'transfers' && styles.filterChipActive]} onPress={() => setAdminView('transfers')}>
-            <Text style={[styles.filterChipText, adminView === 'transfers' && styles.filterChipTextActive]}>Transfers</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.filterChip, adminView === 'support' && styles.filterChipActive]} onPress={() => setAdminView('support')}>
-            <Text style={[styles.filterChipText, adminView === 'support' && styles.filterChipTextActive]}>
-              Support{openSupportCount > 0 ? ` (${openSupportCount})` : ''}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.filterChip, adminView === 'ledger' && styles.filterChipActive]} onPress={() => setAdminView('ledger')}>
-            <Text style={[styles.filterChipText, adminView === 'ledger' && styles.filterChipTextActive]}>Ledger</Text>
-          </TouchableOpacity>
+        <View style={styles.staffTabBar}>
+          <View style={styles.staffTabRow}>
+            {[
+              { key: 'transfers', label: 'Transfers', count: needsActionCount },
+              { key: 'support', label: 'Support', count: openSupportCount },
+              { key: 'ledger', label: 'Ledger', count: 0 }
+            ].map((tab) => (
+              <TouchableOpacity key={tab.key} style={[styles.staffTab, adminView === tab.key && styles.staffTabActive]} onPress={() => setAdminView(tab.key)}>
+                <Text style={[styles.staffTabText, adminView === tab.key && styles.staffTabTextActive]}>{tab.label}</Text>
+                {tab.count > 0 ? (
+                  <View style={styles.staffTabBadge}>
+                    <Text style={styles.staffTabBadgeText}>{tab.count}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {adminView === 'ledger' && (
@@ -850,10 +875,10 @@ export default function App() {
 
         {adminView === 'transfers' && (
           <View style={styles.filterRow}>
-            {['pending', 'in_progress', 'completed', 'rejected', 'all'].map((f) => (
+            {['todo', 'pending', 'in_progress', 'completed', 'rejected', 'all'].map((f) => (
               <TouchableOpacity key={f} style={[styles.filterChip, adminFilter === f && styles.filterChipActive]} onPress={() => setAdminFilter(f)}>
                 <Text style={[styles.filterChipText, adminFilter === f && styles.filterChipTextActive]}>
-                  {f === 'in_progress' ? 'In progress' : f.charAt(0).toUpperCase() + f.slice(1)}
+                  {f === 'todo' ? `Needs action${needsActionCount > 0 ? ` (${needsActionCount})` : ''}` : f === 'in_progress' ? 'In progress' : f.charAt(0).toUpperCase() + f.slice(1)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -904,7 +929,7 @@ export default function App() {
           {adminFetching ? (
             <ActivityIndicator size="large" color="#0F4C3A" style={{ marginVertical: 20 }} />
           ) : adminFilteredTransactions.length === 0 ? (
-            <Text style={styles.emptyText}>Nothing here.</Text>
+            <Text style={styles.emptyText}>{adminFilter === 'todo' ? 'Nothing is waiting on your team right now.' : 'Nothing here.'}</Text>
           ) : (
             adminFilteredTransactions.map((item) => {
               const controls = staffControls(item);
@@ -973,6 +998,7 @@ export default function App() {
           )}
         </ScrollView>
         )}
+        {noticeLayer}
       </SafeAreaView>
     );
   }
@@ -1006,6 +1032,7 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </ScrollView>
+        {noticeLayer}
       </SafeAreaView>
     );
   }
@@ -1347,6 +1374,7 @@ export default function App() {
           {activeTab === 'support' ? <View style={styles.navActiveMark} /> : null}
         </TouchableOpacity>
       </View>
+      {noticeLayer}
     </SafeAreaView>
   );
 }
@@ -1475,8 +1503,28 @@ const styles = StyleSheet.create({
   adminRejectBtn: { paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: colors.dangerText },
   adminRejectText: { color: colors.dangerText, fontSize: 13, fontWeight: '700' },
 
+  // Staff tabs (Transfers / Support / Ledger): larger and centred, so they
+  // read as the main sections and the small chips below read as filters.
+  staffTabBar: { alignItems: 'center', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6, backgroundColor: colors.paper },
+  staffTabRow: { flexDirection: 'row', width: '100%', maxWidth: 560, gap: 10, justifyContent: 'center' },
+  staffTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, paddingHorizontal: 8, borderRadius: 14, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
+  staffTabActive: { backgroundColor: colors.surface, borderColor: colors.surface },
+  staffTabText: { fontSize: 16, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  staffTabTextActive: { color: colors.paper },
+  staffTabBadge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, marginLeft: 8, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
+  staffTabBadgeText: { fontSize: 12, fontWeight: '800', color: colors.ink },
+
+  // In-app pop-up (replaces the browser's alert box)
+  noticeOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(22, 35, 31, 0.55)', justifyContent: 'center', alignItems: 'center', padding: 24, zIndex: 100 },
+  noticeCard: { width: '100%', maxWidth: 380, backgroundColor: colors.card, borderRadius: 18, padding: 22, borderWidth: 1, borderColor: colors.border },
+  noticeAccent: { height: 5, width: 44, borderRadius: 3, marginBottom: 14 },
+  noticeAccentError: { backgroundColor: colors.dangerText },
+  noticeAccentInfo: { backgroundColor: colors.gold },
+  noticeTitle: { fontSize: 18, fontWeight: '800', color: colors.ink, marginBottom: 6 },
+  noticeMessage: { fontSize: 14, lineHeight: 20, color: colors.muted, marginBottom: 8 },
+
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: colors.paper },
-  filterChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  filterChip: { paddingVertical: 5, paddingHorizontal: 11, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
   filterChipActive: { backgroundColor: colors.surface, borderColor: colors.surface },
   filterChipText: { fontSize: 12, fontWeight: '600', color: colors.ink },
   filterChipTextActive: { color: colors.paper },
