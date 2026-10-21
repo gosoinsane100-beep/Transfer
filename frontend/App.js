@@ -87,6 +87,16 @@ const DEFAULT_AMOUNT = { US: '100', GH: '1000', NG: '150000' };
 const FEE_RATE = 0.05;
 const fmtMoney = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
+// Transfer ids are long (a UUID); screens show the first 8 characters, which
+// is plenty to tell transfers apart and quote to support.
+const shortId = (id) => {
+  const text = String(id);
+  return text.includes('-') ? text.slice(0, 8).toUpperCase() : text;
+};
+
+// How often the staff screens quietly refresh themselves, in milliseconds.
+const STAFF_REFRESH_MS = 20000;
+
 const STATUS_LABELS = {
   pending: 'Pending',
   payment_received: 'Payment received',
@@ -117,6 +127,10 @@ export default function App() {
   const [adminToken, setAdminToken] = useState(null);
 
   const [activeTab, setActiveTab] = useState('home');
+
+  // In-app pop-up message (replaces the browser's plain alert box)
+  const [notice, setNotice] = useState(null); // { kind: 'error' | 'info', message }
+  const notify = (message, kind = 'error') => setNotice({ kind, message: String(message) });
 
   // Home screen rate preview
   const [previewCountry, setPreviewCountry] = useState('GH');
@@ -199,6 +213,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, adminToken]);
 
+  // While staff are signed in, quietly re-check for new transfers and support
+  // messages, so a change made by the other region (or a new customer message)
+  // shows up without anyone having to reload the page.
+  useEffect(() => {
+    if (!admin || !adminToken) return undefined;
+    const timer = setInterval(() => {
+      fetchAdminTransactions(true);
+      fetchSupportMessages(true);
+    }, STAFF_REFRESH_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, adminToken]);
+
   // The settlement ledger is recalculated by the server every time it's opened.
   useEffect(() => {
     if (admin && adminToken && adminView === 'ledger') fetchLedger();
@@ -217,10 +244,10 @@ export default function App() {
       } else if (response.status === 401 || response.status === 403) {
         handleStaffLogout();
       } else {
-        alert(data.error || 'Could not load the ledger.');
+        notify(data.error || 'Could not load the ledger.');
       }
     } catch (error) {
-      alert('Could not reach the server.');
+      notify('Could not reach the server.');
     } finally {
       setLedgerFetching(false);
     }
@@ -274,7 +301,7 @@ export default function App() {
 
   const handleAuth = async () => {
     if (!username || !authPassword) {
-      alert('Enter both a username and a password.');
+      notify('Enter both a username and a password.', 'info');
       return;
     }
 
@@ -282,7 +309,7 @@ export default function App() {
     const isReservedAdminHandle = RESERVED_ADMIN_HANDLES.includes(cleanUsername);
 
     if (isSignUp && isReservedAdminHandle) {
-      alert('That username is reserved for staff sign-in and can\'t be used to create a customer account.');
+      notify('That username is reserved for staff sign-in and can\'t be used to create a customer account.', 'info');
       return;
     }
 
@@ -302,7 +329,7 @@ export default function App() {
           setAdmin(data.admin);
           setAdminToken(data.token);
         } else {
-          alert(data.error || 'Could not sign you in.');
+          notify(data.error || 'Could not sign you in.');
         }
         return;
       }
@@ -318,10 +345,10 @@ export default function App() {
         setUser(data.user);
         setUserToken(data.token);
       } else {
-        alert(data.error || 'Could not sign you in.');
+        notify(data.error || 'Could not sign you in.');
       }
     } catch (err) {
-      alert('Could not reach the server.');
+      notify('Could not reach the server.');
     } finally {
       setAuthLoading(false);
     }
@@ -377,9 +404,11 @@ export default function App() {
     }
   };
 
-  const fetchAdminTransactions = async () => {
+  // `silent` refreshes the list without the loading spinner, so a background
+  // refresh never makes the screen flicker or jump.
+  const fetchAdminTransactions = async (silent = false) => {
     try {
-      setAdminFetching(true);
+      if (!silent) setAdminFetching(true);
       const response = await fetch(`${BACKEND_URL}/api/admin/transactions`, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
@@ -392,7 +421,7 @@ export default function App() {
     } catch (error) {
       // leave list as-is
     } finally {
-      setAdminFetching(false);
+      if (!silent) setAdminFetching(false);
     }
   };
 
@@ -413,7 +442,7 @@ export default function App() {
 
   const handleSubmitSupport = async () => {
     if (!supportMessage.trim()) {
-      alert('Write a message first.');
+      notify('Write a message first.', 'info');
       return;
     }
     setSubmittingSupport(true);
@@ -428,18 +457,18 @@ export default function App() {
         setSupportMessage('');
         fetchMyMessages(userToken);
       } else {
-        alert(data.error || 'Could not send that message.');
+        notify(data.error || 'Could not send that message.');
       }
     } catch (err) {
-      alert('Could not reach the server.');
+      notify('Could not reach the server.');
     } finally {
       setSubmittingSupport(false);
     }
   };
 
-  const fetchSupportMessages = async () => {
+  const fetchSupportMessages = async (silent = false) => {
     try {
-      setSupportFetching(true);
+      if (!silent) setSupportFetching(true);
       const response = await fetch(`${BACKEND_URL}/api/admin/support`, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
@@ -452,7 +481,7 @@ export default function App() {
     } catch (error) {
       // leave list as-is
     } finally {
-      setSupportFetching(false);
+      if (!silent) setSupportFetching(false);
     }
   };
 
@@ -468,10 +497,10 @@ export default function App() {
       if (data.success) {
         fetchSupportMessages();
       } else {
-        alert(data.error || 'Could not update that message.');
+        notify(data.error || 'Could not update that message.');
       }
     } catch (err) {
-      alert('Could not reach the server.');
+      notify('Could not reach the server.');
     } finally {
       setResolvingId(null);
     }
@@ -489,10 +518,10 @@ export default function App() {
       if (data.success) {
         setReceiptUrl(data.url);
       } else {
-        alert('Could not upload that file: ' + data.error);
+        notify('Could not upload that file: ' + data.error);
       }
     } catch (err) {
-      alert('Could not upload the receipt image.');
+      notify('Could not upload the receipt image.');
     } finally {
       setUploadingReceipt(false);
     }
@@ -535,23 +564,23 @@ export default function App() {
       (payoutMethod.startsWith('us_') && !payoutHandle.trim());
 
     if (!senderName || missingRecipientField) {
-      alert("Fill in your name and the recipient's details before submitting.");
+      notify("Fill in your name and the recipient's details before submitting.", 'info');
       return;
     }
     if (!Number.isFinite(numSend) || numSend <= 0) {
-      alert('Enter the amount you want to send.');
+      notify('Enter the amount you want to send.', 'info');
       return;
     }
     if (!originRate || !destRate) {
-      alert('Exchange rates are still loading. Try again in a moment.');
+      notify('Exchange rates are still loading. Try again in a moment.', 'info');
       return;
     }
     if (usdEquivalent < MIN_TRANSFER_USD || usdEquivalent > MAX_TRANSFER_USD) {
-      alert(`Transfers must be between $${MIN_TRANSFER_USD} and $${MAX_TRANSFER_USD}${limitsInSenderCurrency && originCountry !== 'US' ? ` (about ${limitsInSenderCurrency} in your currency)` : ''}.`);
+      notify(`Transfers must be between $${MIN_TRANSFER_USD} and $${MAX_TRANSFER_USD}${limitsInSenderCurrency && originCountry !== 'US' ? ` (about ${limitsInSenderCurrency} in your currency)` : ''}.`, 'info');
       return;
     }
     if (payoutMethod === 'cash_pickup' && usdEquivalent > CASH_PICKUP_MAX_USD) {
-      alert(`Cash pickup is limited to $${CASH_PICKUP_MAX_USD} per transfer.`);
+      notify(`Cash pickup is limited to $${CASH_PICKUP_MAX_USD} per transfer.`, 'info');
       return;
     }
 
@@ -584,10 +613,10 @@ export default function App() {
         setOrderSubmitted(true);
         fetchUserHistory(userToken);
       } else {
-        alert('Could not submit that transfer: ' + data.error);
+        notify('Could not submit that transfer: ' + data.error);
       }
     } catch (err) {
-      alert('Could not reach the server.');
+      notify('Could not reach the server.');
     } finally {
       setSubmitting(false);
     }
@@ -597,11 +626,11 @@ export default function App() {
     const next = NEXT_STATUS[item.status];
     if (!next) return;
     if (next === 'sent' && !(payoutRefDrafts[item.id] || '').trim()) {
-      alert('Enter a payout reference before marking this as sent.');
+      notify('Enter a payout reference before marking this as sent.', 'info');
       return;
     }
     if (next === 'sent' && item.payout_method === 'cash_pickup' && !(pickupCodeDrafts[item.id] || '').trim()) {
-      alert('Enter the pickup code the recipient gives you before handing over any cash.');
+      notify('Enter the pickup code the recipient gives you before handing over any cash.', 'info');
       return;
     }
     setActingOnId(item.id);
@@ -619,10 +648,10 @@ export default function App() {
       if (data.success) {
         fetchAdminTransactions();
       } else {
-        alert(data.error || 'Could not update that transfer.');
+        notify(data.error || 'Could not update that transfer.');
       }
     } catch (err) {
-      alert('Could not reach the server.');
+      notify('Could not reach the server.');
     } finally {
       setActingOnId(null);
     }
@@ -640,10 +669,10 @@ export default function App() {
       if (data.success) {
         fetchAdminTransactions();
       } else {
-        alert(data.error || 'Could not update that transfer.');
+        notify(data.error || 'Could not update that transfer.');
       }
     } catch (err) {
-      alert('Could not reach the server.');
+      notify('Could not reach the server.');
     } finally {
       setActingOnId(null);
     }
@@ -841,7 +870,7 @@ export default function App() {
               supportMessages.map((item) => (
                 <View key={item.id} style={styles.historyCard}>
                   <View style={styles.historyHeader}>
-                    <Text style={styles.historyTitle}>Message #{item.id}</Text>
+                    <Text style={styles.historyTitle}>Message #{shortId(item.id)}</Text>
                     <Text style={[styles.badge, item.status === 'resolved' ? styles.badgeSuccess : styles.badgePending]}>
                       {item.status === 'resolved' ? 'Resolved' : 'Open'}
                     </Text>
@@ -887,7 +916,7 @@ export default function App() {
               return (
               <View key={item.id} style={styles.historyCard}>
                 <View style={styles.historyHeader}>
-                  <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
+                  <Text style={styles.historyTitle}>Transfer #{shortId(item.id)}</Text>
                   <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                 </View>
                 <Text style={styles.historyDetail}>{routeLabel(item)}</Text>
@@ -1226,7 +1255,7 @@ export default function App() {
               transactions.map((item) => (
                 <View key={item.id} style={styles.historyCard}>
                   <View style={styles.historyHeader}>
-                    <Text style={styles.historyTitle}>Transfer #{item.id}</Text>
+                    <Text style={styles.historyTitle}>Transfer #{shortId(item.id)}</Text>
                     <Text style={[styles.badge, statusStyle(item.status)]}>{statusLabel(item.status)}</Text>
                   </View>
                   <Text style={styles.historyDetail}>{routeLabel(item)}</Text>
@@ -1279,7 +1308,7 @@ export default function App() {
               myMessages.map((item) => (
                 <View key={item.id} style={styles.historyCard}>
                   <View style={styles.historyHeader}>
-                    <Text style={styles.historyTitle}>Message #{item.id}</Text>
+                    <Text style={styles.historyTitle}>Message #{shortId(item.id)}</Text>
                     <Text style={[styles.badge, item.status === 'resolved' ? styles.badgeSuccess : styles.badgePending]}>
                       {item.status === 'resolved' ? 'Resolved' : 'Open'}
                     </Text>
