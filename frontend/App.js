@@ -23,6 +23,7 @@ const PAYMENT_HANDLES = {
   MTN_MOMO: 'MTN MoMo number: 024 000 0000 (demo number)',
   GH_CASH_DROPOFF: 'Hand the cash to a CediPay team member in Accra (demo — real location to be added)',
   NG_BANK: 'Bank transfer to: Demo Bank · Account 0000000000 · CediPay Nigeria (demo details)',
+  GH_BANK: 'Bank transfer to: Demo Bank · Account 0000000000 · CediPay Ghana (demo details)',
   // USDT on the Solana network specifically — sending USDT on a different
   // network (Ethereum, Tron, etc.) to this address will not arrive.
   USDT_SOL: 'USDT (Solana network only): GYBEPGBCXsc8Sb1AudHffnVevdfKB38d8RprRtjiC6h3'
@@ -44,6 +45,7 @@ const PAYMENT_METHOD_LABELS = {
   USDT_SOL: 'USDT (Solana)',
   MTN_MOMO: 'MTN MoMo',
   GH_CASH_DROPOFF: 'Cash drop-off',
+  GH_BANK: 'Bank transfer',
   NG_BANK: 'Bank transfer'
 };
 const paymentMethodLabel = (code) => PAYMENT_METHOD_LABELS[code] || code;
@@ -62,17 +64,20 @@ const REGION_LABELS = { US: 'United States', GH: 'Ghana', NG: 'Nigeria', ALL: 'A
 const PREVIEW_COUNTRIES = ['GH', 'NG'];
 
 // What a sender can pay with, depending on the country they're sending FROM.
+// Pay-in and payout are mirror images: whatever you can pay with in a country,
+// a recipient there can be paid by (cash drop-off pairs with cash pickup).
+// Keep these two lists in the same order, and in step with the backend.
 const PAYIN_OPTIONS = {
   US: ['Zelle', 'PayPal_FF', 'BinancePay', 'BybitPay', 'USDT_SOL'],
-  GH: ['MTN_MOMO', 'GH_CASH_DROPOFF', 'USDT_SOL'],
+  GH: ['MTN_MOMO', 'GH_BANK', 'GH_CASH_DROPOFF', 'USDT_SOL'],
   NG: ['NG_BANK', 'USDT_SOL']
 };
 
 // How a recipient can be paid, depending on the country money is sent TO.
 const PAYOUT_OPTIONS = {
-  US: ['us_zelle', 'us_paypal', 'us_usdt'],
-  GH: ['mobile_money', 'bank_transfer', 'cash_pickup'],
-  NG: ['bank_transfer']
+  US: ['us_zelle', 'us_paypal', 'us_binance', 'us_bybit', 'us_usdt'],
+  GH: ['mobile_money', 'bank_transfer', 'cash_pickup', 'gh_usdt'],
+  NG: ['bank_transfer', 'ng_usdt']
 };
 const PAYOUT_LABELS = {
   mobile_money: 'Mobile money',
@@ -80,7 +85,22 @@ const PAYOUT_LABELS = {
   cash_pickup: 'Cash pickup',
   us_zelle: 'Zelle',
   us_paypal: 'PayPal',
-  us_usdt: 'USDT (Solana)'
+  us_binance: 'Binance Pay',
+  us_bybit: 'Bybit Pay',
+  us_usdt: 'USDT (Solana)',
+  gh_usdt: 'USDT (Solana)',
+  ng_usdt: 'USDT (Solana)'
+};
+// Payout methods where the recipient gives one line of details (an email, an
+// ID or a wallet address), and the ones of those that are USDT on Solana.
+const HANDLE_PAYOUTS = ['us_zelle', 'us_paypal', 'us_binance', 'us_bybit', 'us_usdt', 'gh_usdt', 'ng_usdt'];
+const USDT_PAYOUTS = ['us_usdt', 'gh_usdt', 'ng_usdt'];
+const handlePlaceholder = (method) => {
+  if (method === 'us_zelle') return 'Recipient Zelle email or phone';
+  if (method === 'us_paypal') return 'Recipient PayPal email';
+  if (method === 'us_binance') return 'Recipient Binance Pay ID';
+  if (method === 'us_bybit') return 'Recipient Bybit UID';
+  return 'Recipient Solana wallet address';
 };
 const payoutLabel = (code) => PAYOUT_LABELS[code] || code;
 const DEFAULT_AMOUNT = { US: '100', GH: '1000', NG: '150000' };
@@ -129,7 +149,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('home');
 
   // In-app pop-up message (replaces the browser's plain alert box)
-  const [notice, setNotice] = useState(null); // { kind: 'error' | 'info', message }
+  const [notice, setNotice] = useState(null); // { kind: 'error' | 'info' | 'success', message }
   const notify = (message, kind = 'error') => setNotice({ kind, message: String(message) });
 
   // Home screen rate preview
@@ -183,6 +203,15 @@ export default function App() {
   const [adminView, setAdminView] = useState('transfers'); // 'transfers' | 'support' | 'ledger'
   const [ledger, setLedger] = useState(null);
   const [ledgerFetching, setLedgerFetching] = useState(false);
+  const [ledgerDays, setLedgerDays] = useState('30'); // '30' = last 30 days, 'all' = whole history
+  const [settleForm, setSettleForm] = useState(null); // { to, amount, reference } while recording a payment
+  const [settleActingId, setSettleActingId] = useState(null);
+  const settleLock = useRef(false);
+  // The quiet 20-second refresh reads these, not state, so it always sees the current screen.
+  const adminViewRef = useRef('transfers');
+  const ledgerDaysRef = useRef('30');
+  adminViewRef.current = adminView;
+  ledgerDaysRef.current = ledgerDays;
   const [supportMessages, setSupportMessages] = useState([]);
   const [supportFetching, setSupportFetching] = useState(false);
   const [supportReplyDrafts, setSupportReplyDrafts] = useState({});
@@ -222,6 +251,7 @@ export default function App() {
     const timer = setInterval(() => {
       fetchAdminTransactions(true);
       fetchSupportMessages(true);
+      if (adminViewRef.current === 'ledger') fetchLedger(true);
     }, STAFF_REFRESH_MS);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -233,10 +263,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminView]);
 
-  const fetchLedger = async () => {
+  // `silent` refreshes without the loading spinner. The history window comes
+  // from a ref so the background refresh always uses the one on screen.
+  const fetchLedger = async (silent = false) => {
     try {
-      setLedgerFetching(true);
-      const response = await fetch(`${BACKEND_URL}/api/admin/ledger`, {
+      if (!silent) setLedgerFetching(true);
+      const query = ledgerDaysRef.current === 'all' ? '?days=all' : '';
+      const response = await fetch(`${BACKEND_URL}/api/admin/ledger${query}`, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
       const data = await response.json();
@@ -244,13 +277,78 @@ export default function App() {
         setLedger(data);
       } else if (response.status === 401 || response.status === 403) {
         handleStaffLogout();
-      } else {
+      } else if (!silent) {
         notify(data.error || 'Could not load the ledger.');
+      }
+    } catch (error) {
+      if (!silent) notify('Could not reach the server.');
+    } finally {
+      if (!silent) setLedgerFetching(false);
+    }
+  };
+
+  const changeLedgerWindow = (days) => {
+    ledgerDaysRef.current = days;
+    setLedgerDays(days);
+    fetchLedger();
+  };
+
+  // Record that this team has sent money to another team to settle up.
+  const submitSettlement = async () => {
+    if (!settleForm || settleLock.current) return;
+    const amount = parseFloat(settleForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify('Enter the amount you sent, in US dollars.', 'info');
+      return;
+    }
+    if (!settleForm.reference.trim()) {
+      notify('Enter a reference, for example the transaction ID of the payment.', 'info');
+      return;
+    }
+    settleLock.current = true;
+    setSettleActingId('new');
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/admin/settlements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ toRegion: settleForm.to, amountUSD: amount, reference: settleForm.reference.trim() })
+      });
+      const data = await response.json();
+      if (data.success) {
+        const to = settleForm.to;
+        setSettleForm(null);
+        await fetchLedger(true);
+        notify(`Payment recorded. It counts once the ${REGION_LABELS[to]} team confirms it arrived.`, 'success');
+      } else {
+        notify(data.error || 'Could not record that payment.');
       }
     } catch (error) {
       notify('Could not reach the server.');
     } finally {
-      setLedgerFetching(false);
+      settleLock.current = false;
+      setSettleActingId(null);
+    }
+  };
+
+  // Confirm a payment that was sent to this team, or cancel one this team recorded.
+  const actOnSettlement = async (item, action) => {
+    if (settleLock.current) return;
+    settleLock.current = true;
+    setSettleActingId(item.id);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/admin/settlements/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ action })
+      });
+      const data = await response.json();
+      if (!data.success) notify(data.error || 'Could not update that payment.');
+      await fetchLedger(true);
+    } catch (error) {
+      notify('Could not reach the server.');
+    } finally {
+      settleLock.current = false;
+      setSettleActingId(null);
     }
   };
 
@@ -563,7 +661,7 @@ export default function App() {
       (payoutMethod === 'mobile_money' && !mobileMoneyNumber) ||
       (payoutMethod === 'bank_transfer' && (!bankName || !bankAccountNumber)) ||
       (payoutMethod === 'cash_pickup' && (!recipientPhone || !pickupLocation)) ||
-      (payoutMethod.startsWith('us_') && !payoutHandle.trim());
+      (HANDLE_PAYOUTS.includes(payoutMethod) && !payoutHandle.trim());
 
     if (!senderName || missingRecipientField) {
       notify("Fill in your name and the recipient's details before submitting.", 'info');
@@ -595,7 +693,7 @@ export default function App() {
           senderName,
           originCountry,
           amountSend: numSend,
-          payoutHandle: payoutMethod.startsWith('us_') ? payoutHandle.trim() : undefined,
+          payoutHandle: HANDLE_PAYOUTS.includes(payoutMethod) ? payoutHandle.trim() : undefined,
           paymentMethod,
           recipientCountry,
           recipientName,
@@ -691,7 +789,7 @@ export default function App() {
     if (item.payout_method === 'cash_pickup') {
       return `Cash pickup · ${item.pickup_location || ''} · ${item.recipient_phone || ''}`;
     }
-    if (item.payout_method && item.payout_method.startsWith('us_')) {
+    if (item.payout_method && HANDLE_PAYOUTS.includes(item.payout_method)) {
       return `${payoutLabel(item.payout_method)} · ${item.payout_handle || ''}`;
     }
     return '—';
@@ -756,37 +854,252 @@ export default function App() {
 
   const usd = (n) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // One region's money position (all figures are USD equivalents).
-  const renderLedgerCard = (code, x) => {
-    if (!x) return null;
-    const net = Number(x.net_to_settle_usd) || 0;
-    let verdict = 'All square — nothing to settle with other regions.';
-    if (net > 0.004) verdict = `${REGION_LABELS[code]} is holding ${usd(net)} that belongs to other regions.`;
-    if (net < -0.004) verdict = `Other regions owe ${REGION_LABELS[code]} ${usd(-net)} (paid out to recipients ahead of being reimbursed).`;
-    return (
-      <View key={code} style={styles.historyCard}>
+  const fmtDay = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  };
+  const pctText = (fraction) => `${Number((fraction * 100).toFixed(2))}%`;
+
+  // The settlement ledger, drawn for whoever is signed in. A regional team sees
+  // its own position with each other team; the owner sees every pair, read-only.
+  // All figures are USD equivalents.
+  const renderLedger = () => {
+    const L = ledger;
+    if (!L.positions) {
+      return <Text style={styles.emptyText}>The ledger needs the latest server update. Upload the new server.js, then refresh.</Text>;
+    }
+    const me = admin.region;
+    const isOwner = me === 'ALL';
+    const label = (code) => REGION_LABELS[code] || code;
+    const who = (code) => (code === me ? 'you' : label(code));
+    const Who = (code) => (code === me ? 'You' : label(code));
+    const fee = L.fee;
+    const split = fee.split;
+    const feeC = fee.percent * split.collector;
+    const feeP = fee.percent * split.payer;
+    const feeO = fee.percent * split.owner;
+    const example = 100;
+    const windowLabel = L.window_days ? `last ${L.window_days} days` : 'all time';
+    const hiddenCount = (L.hidden ? L.hidden.transfers + L.hidden.settlements : 0);
+    const pendingPayments = L.settlements.filter((x) => x.status === 'sent');
+
+    const earningsRows = Object.keys(L.earnings).map((code) => {
+      const e = L.earnings[code];
+      return (
+        <View key={code} style={styles.ledgerBlock}>
+          {isOwner ? <Text style={styles.historyTitle}>{label(code)} team</Text> : null}
+          <Text style={styles.historyHighlight}>Yours to keep ({windowLabel}): {usd(e.keep_recent_usd)}</Text>
+          {L.window_days && Number(e.keep_usd) !== Number(e.keep_recent_usd) ? (
+            <Text style={styles.historyDetail}>All time: {usd(e.keep_usd)}</Text>
+          ) : null}
+          <Text style={styles.historyDetail}>Still pending (transfers not finished yet): {usd(e.pending_usd)}</Text>
+        </View>
+      );
+    });
+
+    const renderPosition = (pos) => {
+      const A = pos.a;
+      const B = pos.b;
+      const net = Number(pos.net_usd) || 0;
+      const settled = Math.abs(net) < 0.005;
+      let headline;
+      if (settled) {
+        headline = isOwner ? `${label(A)} and ${label(B)} are settled up.` : `All settled up with ${label(B)}.`;
+      } else {
+        const debtor = net > 0 ? A : B;
+        const creditor = net > 0 ? B : A;
+        headline = `${debtor === me ? 'You owe' : `${label(debtor)} owes`} ${creditor === me ? 'you' : label(creditor)} ${usd(Math.abs(net))}.`;
+      }
+      const iOwe = !isOwner && net > 0.004;
+      const badgeText = settled ? 'Settled' : isOwner ? 'Open' : iOwe ? 'You owe' : 'Owed to you';
+      const badgeStyle = settled ? styles.badgeSuccess : iOwe ? styles.badgePending : styles.badgeProgress;
+      const formOpen = settleForm && settleForm.to === B && !isOwner;
+      const between = pendingPayments.filter((x) => (x.from_region === A && x.to_region === B) || (x.from_region === B && x.to_region === A));
+
+      return (
+        <View key={`${A}-${B}`} style={styles.historyCard}>
+          <View style={styles.historyHeader}>
+            <Text style={styles.historyTitle}>{isOwner ? `${label(A)} and ${label(B)}` : `${label(B)} team`}</Text>
+            <Text style={[styles.badge, badgeStyle]}>{badgeText}</Text>
+          </View>
+          <Text style={styles.ledgerHeadline}>{headline}</Text>
+
+          <Text style={styles.historyDetail}>Collected by {who(A)}, paid out by {who(B)}: {usd(pos.a_owes_b_usd)}</Text>
+          <Text style={styles.historyDetail}>Collected by {who(B)}, paid out by {who(A)}: {usd(pos.b_owes_a_usd)}</Text>
+          <Text style={styles.historyDetail}>Payments {who(A)} sent {who(B)} (confirmed): {usd(pos.a_paid_b_usd)}</Text>
+          <Text style={styles.historyDetail}>Payments {who(B)} sent {who(A)} (confirmed): {usd(pos.b_paid_a_usd)}</Text>
+          {Number(pos.a_holds_for_b_usd) > 0 ? (
+            <Text style={styles.historyDetail}>Collected by {who(A)}, not paid out yet by {who(B)}: {usd(pos.a_holds_for_b_usd)} (not owed yet)</Text>
+          ) : null}
+          {Number(pos.b_holds_for_a_usd) > 0 ? (
+            <Text style={styles.historyDetail}>Collected by {who(B)}, not paid out yet by {who(A)}: {usd(pos.b_holds_for_a_usd)} (not owed yet)</Text>
+          ) : null}
+
+          {between.map((x) => {
+            const incoming = !isOwner && x.to_region === me;
+            const outgoing = !isOwner && x.from_region === me;
+            return (
+              <View key={x.id} style={styles.ledgerPending}>
+                <Text style={styles.ledgerPendingText}>
+                  {incoming
+                    ? `${label(x.from_region)} says they sent you ${usd(x.amount_usd)}.`
+                    : outgoing
+                    ? `You sent ${label(x.to_region)} ${usd(x.amount_usd)}. Waiting for them to confirm it arrived.`
+                    : `${label(x.from_region)} sent ${label(x.to_region)} ${usd(x.amount_usd)}. Waiting for them to confirm.`}
+                </Text>
+                <Text style={styles.historyDetail}>Reference: {x.reference}</Text>
+                {incoming ? (
+                  <TouchableOpacity style={styles.adminActionBtn} onPress={() => actOnSettlement(x, 'confirm')} disabled={settleActingId === x.id}>
+                    {settleActingId === x.id ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Confirm it arrived</Text>}
+                  </TouchableOpacity>
+                ) : null}
+                {outgoing ? (
+                  <TouchableOpacity style={styles.adminRejectBtn} onPress={() => actOnSettlement(x, 'cancel')} disabled={settleActingId === x.id}>
+                    <Text style={styles.adminRejectText}>Cancel this record</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            );
+          })}
+
+          {!isOwner && !formOpen ? (
+            <TouchableOpacity
+              style={styles.ledgerSecondaryBtn}
+              onPress={() => setSettleForm({ to: B, amount: net > 0.004 ? net.toFixed(2) : '', reference: '' })}
+            >
+              <Text style={styles.ledgerSecondaryText}>Record a payment to {label(B)}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {formOpen ? (
+            <View style={styles.ledgerForm}>
+              <Text style={styles.label}>Amount you sent (US dollars)</Text>
+              <TextInput
+                style={styles.inputMargin}
+                keyboardType="numeric"
+                value={settleForm.amount}
+                onChangeText={(val) => setSettleForm((prev) => ({ ...prev, amount: val }))}
+              />
+              <Text style={styles.label}>Reference</Text>
+              <TextInput
+                style={styles.inputMargin}
+                autoCapitalize="none"
+                placeholder="e.g. transaction ID of the payment"
+                value={settleForm.reference}
+                onChangeText={(val) => setSettleForm((prev) => ({ ...prev, reference: val }))}
+              />
+              <TouchableOpacity style={styles.adminActionBtn} onPress={submitSettlement} disabled={settleActingId === 'new'}>
+                {settleActingId === 'new' ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Save payment record</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.ledgerSecondaryBtn} onPress={() => setSettleForm(null)}>
+                <Text style={styles.ledgerSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+      );
+    };
+
+    const renderTransferLine = (t) => {
+      const o = t.origin_country;
+      const d = t.recipient_country;
+      const totalFee = Number(t.fee_collector_usd) + Number(t.fee_payer_usd) + Number(t.fee_owner_usd);
+      const notPaidOut = t.status === 'payment_received';
+      // A fee share only becomes the team's to keep once the transfer is completed.
+      const keepWord = t.status === 'completed' ? 'fee you keep' : 'fee you keep once completed';
+      let line;
+      if (isOwner) {
+        line = `Fee: ${label(o)} ${usd(t.fee_collector_usd)} · ${label(d)} ${usd(t.fee_payer_usd)}${Number(t.fee_owner_usd) > 0 ? ` · owner ${usd(t.fee_owner_usd)}` : ''}`;
+      } else if (me === o) {
+        line = `You collected ${usd(t.amount_usd)} · ${keepWord} ${usd(t.fee_collector_usd)} · ${notPaidOut ? `you will owe ${label(d)} ${usd(t.obligation_usd)} once they pay out` : `you owe ${label(d)} ${usd(t.obligation_usd)}`}`;
+      } else {
+        line = `${notPaidOut ? 'To pay out' : 'You paid out'} ${usd(Number(t.amount_usd) - totalFee)} · ${keepWord} ${usd(t.fee_payer_usd)} · ${notPaidOut ? `${label(o)} will owe you ${usd(t.obligation_usd)}` : `${label(o)} owes you ${usd(t.obligation_usd)}`}`;
+      }
+      return (
+        <View key={t.id} style={styles.ledgerLine}>
+          <View style={styles.historyHeader}>
+            <Text style={styles.ledgerLineTitle}>#{shortId(t.id)} · {label(o)} → {label(d)}</Text>
+            <Text style={[styles.badge, statusStyle(t.status)]}>{statusLabel(t.status)}</Text>
+          </View>
+          <Text style={styles.historyDetail}>{fmtDay(t.at)}{t.at ? ' · ' : ''}{usd(t.amount_usd)} sent</Text>
+          <Text style={styles.historyDetail}>{line}</Text>
+        </View>
+      );
+    };
+
+    const renderPaymentLine = (x) => (
+      <View key={x.id} style={styles.ledgerLine}>
         <View style={styles.historyHeader}>
-          <Text style={styles.historyTitle}>{REGION_LABELS[code]}</Text>
-          <Text style={[styles.badge, net > 0.004 ? styles.badgePending : net < -0.004 ? styles.badgeProgress : styles.badgeSuccess]}>
-            {net > 0.004 ? 'Holds funds' : net < -0.004 ? 'Is owed' : 'Square'}
+          <Text style={styles.ledgerLineTitle}>{Who(x.from_region)} → {who(x.to_region)} · {usd(x.amount_usd)}</Text>
+          <Text style={[styles.badge, x.status === 'confirmed' ? styles.badgeSuccess : styles.badgePending]}>
+            {x.status === 'confirmed' ? 'Confirmed' : 'Waiting'}
           </Text>
         </View>
-        <Text style={styles.historyDetail}>Collected from senders ({x.collected_count}): {usd(x.collected_usd)}</Text>
-        <Text style={styles.historyDetail}>Fee kept here: {usd(x.fee_kept_usd)}</Text>
-        <Text style={styles.historyDetail}>Paid out to recipients ({x.paid_out_count}): {usd(x.paid_out_usd)}</Text>
-        {Number(x.fee_for_payout_usd) > 0 ? (
-          <Text style={styles.historyDetail}>Fee share for paying out: {usd(x.fee_for_payout_usd)}</Text>
-        ) : null}
-        <Text style={styles.historyHighlight}>{verdict}</Text>
+        <Text style={styles.historyDetail}>
+          {fmtDay(x.confirmed_at || x.created_at)}{x.created_by ? ` · recorded by ${x.created_by}` : ''}{x.confirmed_by ? ` · confirmed by ${x.confirmed_by}` : ''}
+        </Text>
+        <Text style={styles.historyDetail}>Reference: {x.reference}</Text>
       </View>
+    );
+
+    return (
+      <>
+        <View style={styles.infoBox}>
+          <Text style={styles.infoTitle}>How the {pctText(fee.percent)} fee is shared</Text>
+          <Text style={styles.infoText}>
+            {pctText(feeC)} stays with the team that collected the sender's money. {pctText(feeP)} goes to the team that pays the recipient.
+            {feeO > 0 ? ` The other ${pctText(feeO)} is the owner's.` : ''}
+          </Text>
+          <Text style={styles.infoText}>
+            Example, a ${example} transfer: the collecting team keeps {usd(example * feeC)}, and owes the paying team {usd(example - example * feeC - example * feeO)}. The paying team keeps {usd(example * feeP)} and pays the recipient {usd(example - example * fee.percent)}.
+          </Text>
+          <Text style={styles.infoText}>The app only keeps this record. It never moves money.</Text>
+        </View>
+
+        <Text style={styles.sectionTitle}>{isOwner ? 'Between the teams' : 'Settling up with the other teams'}</Text>
+        {L.positions.map(renderPosition)}
+
+        <Text style={styles.sectionTitle}>{isOwner ? 'Fees each team keeps' : 'Fees your team keeps'}</Text>
+        <View style={styles.historyCard}>
+          {earningsRows}
+          {isOwner && fee.split.owner > 0 && L.owner ? (
+            <View style={styles.ledgerBlock}>
+              <Text style={styles.historyTitle}>Owner share</Text>
+              <Text style={styles.historyHighlight}>Yours to keep ({windowLabel}): {usd(L.owner.keep_recent_usd)}</Text>
+              <Text style={styles.historyDetail}>Still pending: {usd(L.owner.pending_usd)}</Text>
+            </View>
+          ) : null}
+          <Text style={styles.waitingHint}>A fee share becomes yours to keep once the transfer is completed. Until then the transfer could still be rejected.</Text>
+        </View>
+
+        <Text style={styles.sectionTitle}>Payments between teams ({windowLabel})</Text>
+        {L.settlements.length === 0 ? <Text style={styles.emptyText}>No payments recorded.</Text> : L.settlements.map(renderPaymentLine)}
+
+        <Text style={styles.sectionTitle}>Transfers ({windowLabel})</Text>
+        {L.transfers.length === 0 ? <Text style={styles.emptyText}>No transfers with money in them yet.</Text> : L.transfers.map(renderTransferLine)}
+
+        <Text style={styles.emptyText}>
+          {L.window_days
+            ? hiddenCount > 0
+              ? `${hiddenCount} older finished ${hiddenCount === 1 ? 'entry is' : 'entries are'} hidden to keep this page tidy. They are kept on record, not deleted, and the totals above still include them.`
+              : `Showing the last ${L.window_days} days. Older finished entries are hidden, never deleted.`
+            : 'Showing the full history.'}
+        </Text>
+        <TouchableOpacity style={styles.ledgerSecondaryBtn} onPress={() => changeLedgerWindow(L.window_days ? 'all' : '30')}>
+          <Text style={styles.ledgerSecondaryText}>{L.window_days ? 'Show full history' : 'Show last 30 days only'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.adminActionBtn} onPress={() => fetchLedger()} disabled={ledgerFetching}>
+          {ledgerFetching ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Refresh</Text>}
+        </TouchableOpacity>
+      </>
     );
   };
 
   const noticeLayer = notice ? (
     <View style={styles.noticeOverlay}>
       <View style={styles.noticeCard}>
-        <View style={[styles.noticeAccent, notice.kind === 'error' ? styles.noticeAccentError : styles.noticeAccentInfo]} />
-        <Text style={styles.noticeTitle}>{notice.kind === 'error' ? "That didn't work" : 'Please check'}</Text>
+        <View style={[styles.noticeAccent, notice.kind === 'error' ? styles.noticeAccentError : notice.kind === 'success' ? styles.noticeAccentSuccess : styles.noticeAccentInfo]} />
+        <Text style={styles.noticeTitle}>{notice.kind === 'error' ? "That didn't work" : notice.kind === 'success' ? 'Done' : 'Please check'}</Text>
         <Text style={styles.noticeMessage}>{notice.message}</Text>
         <TouchableOpacity style={styles.button} onPress={() => setNotice(null)}>
           <Text style={styles.buttonText}>OK</Text>
@@ -852,23 +1165,7 @@ export default function App() {
             ) : !ledger ? (
               <Text style={styles.emptyText}>Nothing to show yet.</Text>
             ) : (
-              <>
-                {ledger.scope === 'ALL' ? (
-                  <View style={styles.infoBox}>
-                    <Text style={styles.infoText}>Your share of fees (owner): {usd(ledger.owner_fee_usd)}</Text>
-                    <Text style={styles.infoText}>Regions that "hold funds" owe that money to the regions that "are owed". The app only keeps the record, it never moves money.</Text>
-                  </View>
-                ) : (
-                  <View style={styles.infoBox}>
-                    <Text style={styles.infoText}>This is the running total for your region only. It is a record to settle up with the other team. The app never moves money itself.</Text>
-                  </View>
-                )}
-                {Object.keys(ledger.regions).map((code) => renderLedgerCard(code, ledger.regions[code]))}
-                <Text style={styles.emptyText}>All figures are USD equivalents, counted once a payment is confirmed (collected) or paid out.</Text>
-                <TouchableOpacity style={styles.adminActionBtn} onPress={fetchLedger} disabled={ledgerFetching}>
-                  {ledgerFetching ? <ActivityIndicator color="#FAFBF7" /> : <Text style={styles.buttonText}>Refresh</Text>}
-                </TouchableOpacity>
-              </>
+              renderLedger()
             )}
           </ScrollView>
         )}
@@ -1228,20 +1525,16 @@ export default function App() {
                   </>
                 )}
 
-                {payoutMethod.startsWith('us_') && (
+                {HANDLE_PAYOUTS.includes(payoutMethod) && (
                   <>
                     <TextInput
                       style={styles.inputMargin}
                       autoCapitalize="none"
-                      placeholder={
-                        payoutMethod === 'us_zelle' ? 'Recipient Zelle email or phone'
-                        : payoutMethod === 'us_paypal' ? 'Recipient PayPal email'
-                        : 'Recipient Solana wallet address'
-                      }
+                      placeholder={handlePlaceholder(payoutMethod)}
                       value={payoutHandle}
                       onChangeText={setPayoutHandle}
                     />
-                    {payoutMethod === 'us_usdt' && (
+                    {USDT_PAYOUTS.includes(payoutMethod) && (
                       <View style={styles.infoBox}>
                         <Text style={styles.infoText}>USDT is sent on the Solana network only. A different network's address will not work and the money can be lost.</Text>
                       </View>
@@ -1413,12 +1706,12 @@ const styles = StyleSheet.create({
   topBarDark: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: colors.surface },
   brandTitle: { fontSize: 19, fontWeight: '800', color: colors.paper, letterSpacing: 0.2 },
   userSubText: { fontSize: 12, color: colors.gold, marginTop: 2 },
-  logoutBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(250,251,247,0.35)' },
+  logoutBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(250,251,247,0.35)' },
   logoutBtnText: { fontSize: 12, fontWeight: '600', color: colors.paper },
   scroll: { padding: 16, paddingBottom: 96 },
   scrollCenter: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   authCard: { backgroundColor: colors.card, borderRadius: 14, padding: 22, borderWidth: 1, borderColor: colors.border },
-  switchAuthBtn: { marginTop: 14, alignItems: 'center' },
+  switchAuthBtn: { marginTop: 14, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 },
   switchAuthText: { fontSize: 13, color: colors.surface, fontWeight: '600' },
   backLinkText: { fontSize: 12, color: colors.muted, fontWeight: '600' },
   screenContainer: { flex: 1 },
@@ -1428,7 +1721,7 @@ const styles = StyleSheet.create({
   rateCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rateCardTitle: { fontSize: 12, color: 'rgba(250,251,247,0.7)', letterSpacing: 0.2 },
   countryToggleRow: { flexDirection: 'row', gap: 6 },
-  countryPill: { paddingVertical: 3, paddingHorizontal: 9, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(250,251,247,0.35)' },
+  countryPill: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(250,251,247,0.35)' },
   countryPillActive: { backgroundColor: colors.gold, borderColor: colors.gold },
   countryPillText: { fontSize: 11, fontWeight: '700', color: 'rgba(250,251,247,0.8)' },
   countryPillTextActive: { color: colors.surface },
@@ -1440,7 +1733,7 @@ const styles = StyleSheet.create({
   bannerCard: { backgroundColor: colors.card, borderRadius: 14, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: colors.border },
   bannerTitle: { fontSize: 17, fontWeight: '700', color: colors.ink },
   bannerDesc: { fontSize: 13, color: colors.muted, marginTop: 4, marginBottom: 14, lineHeight: 19 },
-  bannerBtn: { backgroundColor: colors.surface, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10, alignSelf: 'flex-start' },
+  bannerBtn: { backgroundColor: colors.surface, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 10, alignSelf: 'flex-start' },
   bannerBtnText: { fontSize: 13, fontWeight: '700', color: colors.paper },
 
   sectionTitle: { fontSize: 15, fontWeight: '700', color: colors.ink, marginBottom: 10 },
@@ -1448,7 +1741,7 @@ const styles = StyleSheet.create({
   miniCard: { backgroundColor: colors.card, padding: 12, borderRadius: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: colors.border },
   miniCardTitle: { fontSize: 14, fontWeight: '700', color: colors.ink },
   miniCardSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
-  miniStatus: { fontSize: 11, fontWeight: '700', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 20, overflow: 'hidden' },
+  miniStatus: { fontSize: 11, fontWeight: '700', paddingVertical: 4, paddingHorizontal: 11, borderRadius: 20, overflow: 'hidden' },
 
   title: { fontSize: 20, fontWeight: '800', color: colors.ink, textAlign: 'center', marginBottom: 6 },
   subtitle: { fontSize: 13, color: colors.muted, textAlign: 'center', marginBottom: 18 },
@@ -1467,7 +1760,7 @@ const styles = StyleSheet.create({
   resultValue: { fontSize: 28, fontWeight: '800', color: colors.gold, marginTop: 4, letterSpacing: -0.5 },
   sectionHeader: { fontSize: 14, fontWeight: '700', color: colors.ink, marginTop: 10, marginBottom: 8 },
   railRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  railButton: { paddingVertical: 8, paddingHorizontal: 13, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  railButton: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
   railButtonActive: { backgroundColor: colors.surface, borderColor: colors.surface },
   railText: { fontSize: 12, color: colors.ink, fontWeight: '600' },
   railTextActive: { color: colors.paper },
@@ -1477,8 +1770,8 @@ const styles = StyleSheet.create({
   uploadContainer: { marginBottom: 12, padding: 10, backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border },
   uploadingText: { fontSize: 12, color: colors.surface },
   uploadedText: { fontSize: 13, color: colors.successText, fontWeight: '600' },
-  button: { backgroundColor: colors.surface, paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 10 },
-  buttonText: { color: colors.paper, fontSize: 15, fontWeight: '700' },
+  button: { backgroundColor: colors.surface, paddingVertical: 15, paddingHorizontal: 28, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  buttonText: { color: colors.paper, fontSize: 15, fontWeight: '700', textAlign: 'center' },
   successContainer: { padding: 16, alignItems: 'center' },
   successTitle: { fontSize: 18, fontWeight: '800', color: colors.successText, marginBottom: 8 },
   successText: { fontSize: 14, color: colors.ink, textAlign: 'center', lineHeight: 20, marginBottom: 16 },
@@ -1486,7 +1779,7 @@ const styles = StyleSheet.create({
   historyCard: { backgroundColor: colors.card, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   historyTitle: { fontSize: 15, fontWeight: '700', color: colors.ink },
-  badge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 20, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
+  badge: { paddingVertical: 4, paddingHorizontal: 11, borderRadius: 20, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
   badgePending: { backgroundColor: colors.pendingBg, color: colors.pendingText },
   badgeSuccess: { backgroundColor: colors.successBg, color: colors.successText },
   badgeDanger: { backgroundColor: colors.dangerBg, color: colors.dangerText },
@@ -1499,19 +1792,29 @@ const styles = StyleSheet.create({
   receiptLinkText: { fontSize: 12, color: colors.surface, fontWeight: '600' },
 
   waitingHint: { fontSize: 12, color: colors.muted, fontStyle: 'italic', marginTop: 8 },
-  adminActionBtn: { backgroundColor: colors.surface, paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-  adminRejectBtn: { paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: colors.dangerText },
-  adminRejectText: { color: colors.dangerText, fontSize: 13, fontWeight: '700' },
+  infoTitle: { fontSize: 14, fontWeight: '800', color: colors.ink, marginBottom: 4 },
+  ledgerHeadline: { fontSize: 17, fontWeight: '800', color: colors.successText, marginBottom: 8, lineHeight: 23 },
+  ledgerBlock: { marginBottom: 10 },
+  ledgerPending: { backgroundColor: colors.goldSoft, borderRadius: 10, padding: 12, marginTop: 10 },
+  ledgerPendingText: { fontSize: 13, fontWeight: '700', color: colors.pendingText, marginBottom: 4, lineHeight: 18 },
+  ledgerForm: { marginTop: 12 },
+  ledgerSecondaryBtn: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 8, borderWidth: 1.5, borderColor: colors.surface, backgroundColor: colors.card },
+  ledgerSecondaryText: { color: colors.surface, fontSize: 14, fontWeight: '700', textAlign: 'center' },
+  ledgerLine: { backgroundColor: colors.card, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: colors.border },
+  ledgerLineTitle: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.ink, marginRight: 8 },
+  adminActionBtn: { backgroundColor: colors.surface, paddingVertical: 13, paddingHorizontal: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  adminRejectBtn: { paddingVertical: 13, paddingHorizontal: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 8, borderWidth: 1, borderColor: colors.dangerText },
+  adminRejectText: { color: colors.dangerText, fontSize: 14, fontWeight: '700', textAlign: 'center' },
 
   // Staff tabs (Transfers / Support / Ledger): larger and centred, so they
   // read as the main sections and the small chips below read as filters.
   staffTabBar: { alignItems: 'center', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6, backgroundColor: colors.paper },
   staffTabRow: { flexDirection: 'row', width: '100%', maxWidth: 560, gap: 10, justifyContent: 'center' },
-  staffTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, paddingHorizontal: 8, borderRadius: 14, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
+  staffTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 17, paddingHorizontal: 10, borderRadius: 14, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   staffTabActive: { backgroundColor: colors.surface, borderColor: colors.surface },
-  staffTabText: { fontSize: 16, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  staffTabText: { fontSize: 15, fontWeight: '800', color: colors.ink, textAlign: 'center' },
   staffTabTextActive: { color: colors.paper },
-  staffTabBadge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, marginLeft: 8, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
+  staffTabBadge: { position: 'absolute', top: -9, right: -6, minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 6, backgroundColor: colors.gold, borderWidth: 2, borderColor: colors.paper, alignItems: 'center', justifyContent: 'center' },
   staffTabBadgeText: { fontSize: 12, fontWeight: '800', color: colors.ink },
 
   // In-app pop-up (replaces the browser's alert box)
@@ -1520,11 +1823,12 @@ const styles = StyleSheet.create({
   noticeAccent: { height: 5, width: 44, borderRadius: 3, marginBottom: 14 },
   noticeAccentError: { backgroundColor: colors.dangerText },
   noticeAccentInfo: { backgroundColor: colors.gold },
+  noticeAccentSuccess: { backgroundColor: colors.successText },
   noticeTitle: { fontSize: 18, fontWeight: '800', color: colors.ink, marginBottom: 6 },
   noticeMessage: { fontSize: 14, lineHeight: 20, color: colors.muted, marginBottom: 8 },
 
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: colors.paper },
-  filterChip: { paddingVertical: 5, paddingHorizontal: 11, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  filterChip: { paddingVertical: 7, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
   filterChipActive: { backgroundColor: colors.surface, borderColor: colors.surface },
   filterChipText: { fontSize: 12, fontWeight: '600', color: colors.ink },
   filterChipTextActive: { color: colors.paper },
